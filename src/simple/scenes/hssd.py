@@ -94,8 +94,13 @@ class HssdSceneManager(SceneManager):
             return
 
         try:
-            # Run strings command and grep for tmp
-            result = subprocess.run(f"strings {usd_path} | grep 'tmp'", shell=True, capture_output=True, text=True)
+            # Inspect embedded asset paths inside the binary USD scene file.
+            result = subprocess.run(
+                f"strings {usd_path}",
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
             output = result.stdout
             
             # Find patterns like tmp/e64068067e09dc45/
@@ -103,6 +108,58 @@ class HssdSceneManager(SceneManager):
             unique_hashes = set(matches)
             
             scene_dir = os.path.dirname(usd_path)
+
+            def _mirror_tree(src: str, dst: str) -> None:
+                if not os.path.exists(src):
+                    return
+
+                if os.path.islink(dst):
+                    return
+
+                if not os.path.exists(dst):
+                    parent_dir = os.path.dirname(dst)
+                    if parent_dir:
+                        os.makedirs(parent_dir, exist_ok=True)
+                    try:
+                        os.symlink(src, dst, target_is_directory=True)
+                        print(f"Hack: Symlinked {dst} -> {src}")
+                        return
+                    except OSError:
+                        os.makedirs(dst, exist_ok=True)
+
+                for root, dirs, files in os.walk(src):
+                    rel_root = os.path.relpath(root, src)
+                    dst_root = dst if rel_root == "." else os.path.join(dst, rel_root)
+                    os.makedirs(dst_root, exist_ok=True)
+
+                    for d in dirs:
+                        os.makedirs(os.path.join(dst_root, d), exist_ok=True)
+
+                    for file_name in files:
+                        src_file = os.path.join(root, file_name)
+                        dst_file = os.path.join(dst_root, file_name)
+                        if not os.path.exists(dst_file):
+                            shutil.copy2(src_file, dst_file)
+
+            def _ensure_casefold_aliases(root_dir: str) -> None:
+                if not os.path.isdir(root_dir):
+                    return
+
+                for root, _, files in os.walk(root_dir):
+                    for file_name in files:
+                        lower_name = file_name.lower()
+                        if lower_name == file_name:
+                            continue
+
+                        src_file = os.path.join(root, file_name)
+                        alias_file = os.path.join(root, lower_name)
+                        if os.path.exists(alias_file):
+                            continue
+
+                        try:
+                            os.symlink(src_file, alias_file)
+                        except OSError:
+                            shutil.copy2(src_file, alias_file)
             
             for h in unique_hashes:
                 target_dir = f"/tmp/{h}"
@@ -112,25 +169,52 @@ class HssdSceneManager(SceneManager):
                 for folder in ["props", "textures"]:
                     src = os.path.join(scene_dir, folder)
                     dst = os.path.join(target_dir, folder)
-                    if os.path.exists(src) and not os.path.exists(dst):
-                        try:
-                            shutil.copytree(src, dst)
-                        except (OSError, shutil.Error) as e:
-                            tmp_usage = shutil.disk_usage("/tmp")
-                            no_space = (
-                                isinstance(e, OSError) and e.errno == errno.ENOSPC
-                            ) or "No space left on device" in str(e)
-                            if no_space:
-                                raise RuntimeError(
-                                    "Failed to prepare HSSD scene assets because /tmp is out of space. "
-                                    f"Copy failed from {src} to {dst}. "
-                                    f"/tmp free space: {tmp_usage.free / (1024 ** 3):.2f} GiB. "
-                                    "Free space in /tmp and rerun."
-                                ) from e
+
+                    try:
+                        _mirror_tree(src, dst)
+                        _ensure_casefold_aliases(dst)
+                    except (OSError, shutil.Error) as e:
+                        tmp_usage = shutil.disk_usage("/tmp")
+                        no_space = (
+                            isinstance(e, OSError) and e.errno == errno.ENOSPC
+                        ) or "No space left on device" in str(e)
+                        if no_space:
                             raise RuntimeError(
-                                f"Failed to prepare HSSD scene assets by copying {src} to {dst}."
+                                "Failed to prepare HSSD scene assets because /tmp is out of space. "
+                                f"Copy failed from {src} to {dst}. "
+                                f"/tmp free space: {tmp_usage.free / (1024 ** 3):.2f} GiB. "
+                                "Free space in /tmp and rerun."
                             ) from e
-                        print(f"Hack: Copied {src} to {dst}")
+                        raise RuntimeError(
+                            f"Failed to prepare HSSD scene assets by mirroring {src} to {dst}."
+                        ) from e
+
+            # Some released HSSD scenes contain absolute references like
+            # /home/<user>/props/*.usd instead of scene-local paths.
+            #
+            # Keep this outside the tmp-hash loop so it still runs for scenes
+            # that only contain broken absolute references.
+            abs_matches = re.findall(r"(/[^\s\"']+/(?:props|textures))/", output)
+            abs_dirs = set(abs_matches)
+
+            # The broken references we have seen most often point directly to
+            # the current user's home directory, even when `strings` does not
+            # surface those paths from the USD binary.
+            home_dir = os.path.expanduser("~")
+            abs_dirs.update(
+                os.path.join(home_dir, folder) for folder in ("props", "textures")
+            )
+
+            for abs_dir in abs_dirs:
+                folder = os.path.basename(abs_dir)
+                src = os.path.join(scene_dir, folder)
+                try:
+                    _mirror_tree(src, abs_dir)
+                    _ensure_casefold_aliases(abs_dir)
+                except (OSError, shutil.Error) as e:
+                    raise RuntimeError(
+                        f"Failed to prepare HSSD scene assets by mirroring {src} to {abs_dir}."
+                    ) from e
                             
         except RuntimeError:
             raise

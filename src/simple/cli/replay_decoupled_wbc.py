@@ -217,9 +217,9 @@ def main(
     num_episodes: Annotated[int, typer.Option()] = -1,
     episode_start: Annotated[int, typer.Option()] = 0,
     record: Annotated[bool, typer.Option()] = True,
+    save_dir: Annotated[str, typer.Option()] = "data/replay_decoupled_wbc",
     replay_dir: Annotated[str, typer.Option()] = "",
     loop_episodes: Annotated[bool, typer.Option()] = False,
-    save_dir: Annotated[str, typer.Option()] = "data/replay_decoupled_wbc",
     dr_level: Annotated[int | None, typer.Option()] = None,
     success_criteria: Annotated[float | None, typer.Option()] = None,
     resume: Annotated[bool, typer.Option()] = False
@@ -280,8 +280,6 @@ def main(
     robot = task.robot
     assert isinstance(robot, G1Sonic)
 
-    if replay_dir:
-        env = VideoRecorder(env, video_folder=replay_dir, framerate=render_hz)
     # Use provided success_criteria or fall back to task's metadata
     if success_criteria is not None:
         task.success_criteria = success_criteria
@@ -466,102 +464,101 @@ def main(
 
             # loaded robot pose
             initial_frame = ep_data.iloc[0]
-            if "observation.base_pose" in initial_frame: # for debugging only
-                base_pos_loaded = initial_frame["observation.base_pose"][:3]
-                base_quat_loaded = initial_frame["observation.base_pose"][3:]
-                base_mat_loaded = t3d.quaternions.quat2mat(base_quat_loaded)
+            base_pos_loaded = initial_frame["observation.base_pose"][:3]
+            base_quat_loaded = initial_frame["observation.base_pose"][3:]
+            base_mat_loaded = t3d.quaternions.quat2mat(base_quat_loaded)
 
-                # print base pose error
-                pos_error = np.linalg.norm(base_pos_steady - base_pos_loaded)
-                quat_error = np.arccos(np.clip(np.abs(np.dot(base_quat_steady, base_quat_loaded)), 0, 1))
-                print(f"\n{'='*80}")
-                print(f"BASE POSE COMPARISON at Episode {ep_idx} Stabilization")
-                # print(f"Steady Base Position: {base_pos_steady}, Loaded Base Position: {base_pos_loaded}")
-                # print(f"Steady Base Quaternion (wxyz): {base_quat_steady}, Loaded Base Quaternion (wxyz): {base_quat_loaded}")
-                print(f"Base Position Error: {pos_error:.6f} m")
-                print(f"Base Quaternion Error (geodesic distance): {quat_error:.6f} rad ({np.degrees(quat_error):.2f}°)")
-                print(f"{'='*80}")
+            # print base pose error
+            pos_error = np.linalg.norm(base_pos_steady - base_pos_loaded)
+            quat_error = np.arccos(np.clip(np.abs(np.dot(base_quat_steady, base_quat_loaded)), 0, 1))
+            print(f"\n{'='*80}")
+            print(f"BASE POSE COMPARISON at Episode {ep_idx} Stabilization")
+            # print(f"Steady Base Position: {base_pos_steady}, Loaded Base Position: {base_pos_loaded}")
+            # print(f"Steady Base Quaternion (wxyz): {base_quat_steady}, Loaded Base Quaternion (wxyz): {base_quat_loaded}")
+            print(f"Base Position Error: {pos_error:.6f} m")
+            print(f"Base Quaternion Error (geodesic distance): {quat_error:.6f} rad ({np.degrees(quat_error):.2f}°)")
+            print(f"{'='*80}")
 
-                loaded_initial_qpos = initial_frame["observation.state"] # observation["joint_qpos"]
-                # FK to get loaded head camera pose
-                rm = agent._dwbc_robot_model
-                loaded_initial_qpos = rm.get_configuration_from_actuated_joints(
-                    body_actuated_joint_values=loaded_initial_qpos[:29],
-                    left_hand_actuated_joint_values=loaded_initial_qpos[29:36],
-                    right_hand_actuated_joint_values=loaded_initial_qpos[36:43],
-                )
-                rm.cache_forward_kinematics(loaded_initial_qpos)
-                # Get torso link pose (relative to robot base)
-                torso_placement = rm.frame_placement("torso_link")
-                torso_pos_local = torso_placement.translation  # relative to pelvis
-                torso_mat_local = torso_placement.rotation
-                # Transform torso from robot local frame to world frame using pelvis transform
-                pelvis_rot = R.from_matrix(base_mat_loaded)
-                torso_pos_fk = base_pos_loaded + pelvis_rot.apply(torso_pos_local)
-                torso_mat_fk = base_mat_loaded @ torso_mat_local
-                torso_quat_wxyz_fk = t3d.quaternions.mat2quat(torso_mat_fk)
-                # Apply camera offset in torso frame
-                DEFAULT_HEAD_CAM_POSITION = np.array([0.05366004+0.0039635, 0.01752999, 0.4738702 - 0.044], dtype=np.float32)
-                DEFAULT_HEAD_CAM_ORIENTATION = np.array([0.91496, 0.0, 0.40355, 0.0], dtype=np.float32)  # wxyz
-                q_isaac_mujoco_mat = np.array([
-                    [ 0,  0, -1],
-                    [-1,  0,  0],
-                    [ 0,  1,  0]
-                ])
-                q_isaac_mujoco_wxyz = t3d.quaternions.mat2quat(q_isaac_mujoco_mat)  # already wxyz format
-                # FK camera pose: torso offset from FK model
-                torso_rot_fk = R.from_matrix(torso_mat_fk)
-                cam_offset_rotated = torso_rot_fk.apply(DEFAULT_HEAD_CAM_POSITION)
-                fk_cam_pos = torso_pos_fk + cam_offset_rotated
-                # FK camera orientation: multiply quaternions
-                fk_cam_quat_wxyz = t3d.quaternions.qmult(torso_quat_wxyz_fk, DEFAULT_HEAD_CAM_ORIENTATION)
-                fk_cam_quat_wxyz = t3d.quaternions.qmult(fk_cam_quat_wxyz, q_isaac_mujoco_wxyz)
-                # print(f"   Loaded Position (FK): {fk_cam_pos}")
-                # print(f"   Loaded Quaternion (FK): {fk_cam_quat_wxyz}")
+            loaded_initial_qpos = initial_frame["observation.state"] # observation["joint_qpos"]
+            # FK to get loaded head camera pose
+            rm = agent._dwbc_robot_model
+            loaded_initial_qpos = rm.get_configuration_from_actuated_joints(
+                body_actuated_joint_values=loaded_initial_qpos[:29],
+                left_hand_actuated_joint_values=loaded_initial_qpos[29:36],
+                right_hand_actuated_joint_values=loaded_initial_qpos[36:43],
+            )
+            rm.cache_forward_kinematics(loaded_initial_qpos)
+            # Get torso link pose (relative to robot base)
+            torso_placement = rm.frame_placement("torso_link")
+            torso_pos_local = torso_placement.translation  # relative to pelvis
+            torso_mat_local = torso_placement.rotation
+            # Transform torso from robot local frame to world frame using pelvis transform
+            pelvis_rot = R.from_matrix(base_mat_loaded)
+            torso_pos_fk = base_pos_loaded + pelvis_rot.apply(torso_pos_local)
+            torso_mat_fk = base_mat_loaded @ torso_mat_local
+            torso_quat_wxyz_fk = t3d.quaternions.mat2quat(torso_mat_fk)
+            # Apply camera offset in torso frame
+            DEFAULT_HEAD_CAM_POSITION = np.array([0.05366004+0.0039635, 0.01752999, 0.4738702 - 0.044], dtype=np.float32)
+            DEFAULT_HEAD_CAM_ORIENTATION = np.array([0.91496, 0.0, 0.40355, 0.0], dtype=np.float32)  # wxyz
+            q_isaac_mujoco_mat = np.array([
+                [ 0,  0, -1],
+                [-1,  0,  0],
+                [ 0,  1,  0]
+            ])
+            q_isaac_mujoco_wxyz = t3d.quaternions.mat2quat(q_isaac_mujoco_mat)  # already wxyz format
+            # FK camera pose: torso offset from FK model
+            torso_rot_fk = R.from_matrix(torso_mat_fk)
+            cam_offset_rotated = torso_rot_fk.apply(DEFAULT_HEAD_CAM_POSITION)
+            fk_cam_pos = torso_pos_fk + cam_offset_rotated
+            # FK camera orientation: multiply quaternions
+            fk_cam_quat_wxyz = t3d.quaternions.qmult(torso_quat_wxyz_fk, DEFAULT_HEAD_CAM_ORIENTATION)
+            fk_cam_quat_wxyz = t3d.quaternions.qmult(fk_cam_quat_wxyz, q_isaac_mujoco_wxyz)
+            # print(f"   Loaded Position (FK): {fk_cam_pos}")
+            # print(f"   Loaded Quaternion (FK): {fk_cam_quat_wxyz}")
 
-                # Compare it with the steady head camera pose
-                cam_id = mujoco.mj_name2id(mjModel, mujoco.mjtObj.mjOBJ_CAMERA, "head_stereo_left")
-                steady_cam_pos = mjData.cam_xpos[cam_id].copy()
-                steady_cam_mat = mjData.cam_xmat[cam_id].reshape(3, 3)
-                steady_cam_quat_wxyz = t3d.quaternions.mat2quat(steady_cam_mat)
-                
-                # Position errors
-                print(f"\n{'='*80}")
-                pos_error_fk = np.linalg.norm(steady_cam_pos - fk_cam_pos)
-                print(f"Head cam Position Error: {pos_error_fk:.6f} m")
+            # Compare it with the steady head camera pose
+            cam_id = mujoco.mj_name2id(mjModel, mujoco.mjtObj.mjOBJ_CAMERA, "head_stereo_left")
+            steady_cam_pos = mjData.cam_xpos[cam_id].copy()
+            steady_cam_mat = mjData.cam_xmat[cam_id].reshape(3, 3)
+            steady_cam_quat_wxyz = t3d.quaternions.mat2quat(steady_cam_mat)
+            
+            # Position errors
+            print(f"\n{'='*80}")
+            pos_error_fk = np.linalg.norm(steady_cam_pos - fk_cam_pos)
+            print(f"Head cam Position Error: {pos_error_fk:.6f} m")
 
-                # Quaternion errors (geodesic distance and relative rotation)
-                quat_error_fk = np.arccos(np.clip(np.abs(np.dot(steady_cam_quat_wxyz, fk_cam_quat_wxyz)), 0, 1))
-                print(f"Head cam Quaternion Error (geodesic): {quat_error_fk:.6f} rad ({np.degrees(quat_error_fk):.2f}°)")
+            # Quaternion errors (geodesic distance and relative rotation)
+            quat_error_fk = np.arccos(np.clip(np.abs(np.dot(steady_cam_quat_wxyz, fk_cam_quat_wxyz)), 0, 1))
+            print(f"Head cam Quaternion Error (geodesic): {quat_error_fk:.6f} rad ({np.degrees(quat_error_fk):.2f}°)")
 
-                # Calculate relative rotation in Euler angles
-                # Relative rotation: R_rel = R_oracle^T @ R_fk
-                steady_cam_mat = t3d.quaternions.quat2mat(steady_cam_quat_wxyz)
-                fk_cam_mat = t3d.quaternions.quat2mat(fk_cam_quat_wxyz)
-                rel_rot_mat = steady_cam_mat.T @ fk_cam_mat
+            # Calculate relative rotation in Euler angles
+            # Relative rotation: R_rel = R_oracle^T @ R_fk
+            steady_cam_mat = t3d.quaternions.quat2mat(steady_cam_quat_wxyz)
+            fk_cam_mat = t3d.quaternions.quat2mat(fk_cam_quat_wxyz)
+            rel_rot_mat = steady_cam_mat.T @ fk_cam_mat
 
-                # Convert to Euler angles (xyz order)
-                rel_euler_rad = t3d.euler.mat2euler(rel_rot_mat, axes='sxyz')
-                rel_euler_deg = np.degrees(rel_euler_rad)
+            # Convert to Euler angles (xyz order)
+            rel_euler_rad = t3d.euler.mat2euler(rel_rot_mat, axes='sxyz')
+            rel_euler_deg = np.degrees(rel_euler_rad)
 
-                print(f"Relative rotation (Euler angles - sxyz):") 
-                print(f"  Roll:  {rel_euler_deg[0]:7.2f}° (around x)")
-                print(f"  Pitch: {rel_euler_deg[1]:7.2f}° (around y)")
-                print(f"  Yaw:   {rel_euler_deg[2]:7.2f}° (around z)")
-                print(f"{'='*80}\n")
+            print(f"Relative rotation (Euler angles - sxyz):") 
+            print(f"  Roll:  {rel_euler_deg[0]:7.2f}° (around x)")
+            print(f"  Pitch: {rel_euler_deg[1]:7.2f}° (around y)")
+            print(f"  Yaw:   {rel_euler_deg[2]:7.2f}° (around z)")
+            print(f"{'='*80}\n")
 
-                # Image.fromarray(observation["head_stereo_left"]).save(f"{ep_idx}_steady.png")
+            # Image.fromarray(observation["head_stereo_left"]).save(f"{ep_idx}_steady.png")
 
-                # Load and save first frame from episode video
-                video_dir = Path(data_dir) / "videos" / "chunk-000" / "observation.images.ego_view"
-                video_path = video_dir / f"episode_{ep_idx:06d}.mp4"
+            # Load and save first frame from episode video
+            video_dir = Path(data_dir) / "videos" / "chunk-000" / "observation.images.ego_view"
+            video_path = video_dir / f"episode_{ep_idx:06d}.mp4"
 
-                cap = cv2.VideoCapture(str(video_path))
-                _, frame = cap.read()
-                cap.release()
+            cap = cv2.VideoCapture(str(video_path))
+            _, frame = cap.read()
+            cap.release()
 
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                # Image.fromarray(frame_rgb).save(f"{ep_idx}_loaded.png")
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # Image.fromarray(frame_rgb).save(f"{ep_idx}_loaded.png")
 
             agent._wbc_policy.lower_body_policy.gait_indices = torch.zeros((1), dtype=torch.float32)
             agent._data_row_index = 0  # Start from beginning of episode data (now synchronized)

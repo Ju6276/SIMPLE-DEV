@@ -64,11 +64,6 @@ services:
     entrypoint: ["uv", "run", "--no-sync", "eval"]
     command: [] 
 
-  eval-decoupled-wbc:
-    <<: *isaac-sim
-    entrypoint: ["uv", "run", "--no-sync", "eval-decoupled-wbc"]
-    command: []
-
   gpu-test:
     image: simple:${DATE:-latest}
     command: /workspace/SIMPLE/.venv/bin/python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.device_count())"

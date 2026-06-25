@@ -57,7 +57,6 @@ class G1WholebodyLocomotionPickBetweenTablesTaskTeleop(Task):
         "image_dt": 0.033333,
         "need_gravity": True,
         "max_episode_steps": 1200,
-        "success_criteria": 0.4
         # "debug": True
     }
 
@@ -162,7 +161,7 @@ class G1WholebodyLocomotionPickBetweenTablesTaskTeleop(Task):
         render_hz: int | None = None,
         dr_level: int = 0,
         # physics_dt: float = 0.002,
-        success_criteria: float | None = None,
+        success_criteria: float = 0.9,
         *args,
         **kwargs,
     ):
@@ -182,10 +181,7 @@ class G1WholebodyLocomotionPickBetweenTablesTaskTeleop(Task):
         )
 
         self.reward = 0
-        if success_criteria is not None:
-            self.metadata["success_criteria"] = success_criteria
-        
-        self.success_criteria = self.metadata["success_criteria"] if "success_criteria" in self.metadata else 1.0
+        self.success_criteria = success_criteria
 
         self._robot = RobotRegistry.make(**self.robot_cfg, **kwargs)
 
@@ -384,7 +380,6 @@ class G1WholebodyLocomotionPickBetweenTablesTaskTeleop(Task):
             self.reward += 0.02
         else:
             self.reward = 0.0
-        # print(f"Reward: {self.reward:.4f}, Object in container: {is_object_in_container}, Object contacted by hand: {is_object_contacted_by_hand}")
         return self.reward
 
     def preload_objects(self) -> list[Actor]:

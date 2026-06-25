@@ -12,7 +12,6 @@ import pyarrow.parquet as pq
 from tqdm import tqdm
 import glob
 
-# joint orders are re-ordered to match G1Sonic.joint_names
 STATE_SLICES = [
     ("left_hand_thumb", 29, 32),
     ("left_hand_middle", 34, 36),

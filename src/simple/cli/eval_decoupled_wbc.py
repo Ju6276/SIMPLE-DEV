@@ -181,10 +181,7 @@ def _run_eval_worker(
     sim_dt = sonic_config["SIMULATE_DT"]
     control_dt = 4 * sim_dt  # = 0.02 s (50 Hz)
 
-    # eval videos -> data/evals/<policy>/<task>/<dr>, where <dr> is the trailing
-    # component of --data-dir (data/evals/simple-eval/<task>/<dr>).
-    dr = Path(data_dir).name
-    eval_output_dir = os.path.join("data/evals", policy, env_id.split("/")[1], dr)
+    eval_output_dir = os.path.join(eval_dir, policy, env_id.split("/")[1], split)
     os.makedirs(eval_output_dir, exist_ok=True)
 
     if rollout_save_dir and num_workers != 1:
@@ -260,7 +257,6 @@ def _run_eval_worker(
 
     # Use provided success_criteria or fall back to task's metadata
     if success_criteria is not None:
-        task.success_criteria = success_criteria
         task.metadata["success_criteria"] = success_criteria
 
     robot = task.robot
@@ -283,15 +279,13 @@ def _run_eval_worker(
         total_episodes=len(episode_indices),
         status="ready",
         setup_seconds=setup_seconds,
-        max_episode_steps=max_episode_steps,
-        video_path=eval_output_dir if save_video else None,
     )
 
     step_update_every = 5
     stats = defaultdict(bool)
 
     for eps_idx in episode_indices:
-        # if eps_idx <=1 or eps_idx > 8:
+        # if eps_idx <= 7:
         #     continue
         env_conf, episode = get_episode(dataset, eps_idx)  # type: ignore[arg-type]
         task_id = f"episode_{eps_idx}"
@@ -309,20 +303,6 @@ def _run_eval_worker(
             env = rollout_env
 
         observation, info = env.reset(options={"state_dict": env_conf})
-
-        # Reset the agent BEFORE stabilization so the WBC pipeline starts the
-        # episode fresh and the upper body gets the smooth 2-second ramp to the
-        # default pose on every episode (not just the first). 
-        if policy == "vlt":
-            reset_kwargs = {
-                "camera_infos": env_conf["camera_info"],
-                "episode": episode,
-                "condition": "forward_all",
-                "save_cond_images": True,
-            }
-        else:
-            reset_kwargs = {}
-        agent.reset(**reset_kwargs)
 
         # engage RL policy immediately
         agent._wbc_policy.lower_body_policy.use_policy_action = True
@@ -354,16 +334,21 @@ def _run_eval_worker(
         print(
             f"Robot stabilized after {sim_cnt} simulation steps. Engaging Policy Now!"
         )
-
-        # # TEST: stop here and move on to the next episode (skip policy eval)
-        # if save_video and isinstance(env, VideoRecorder):
-        #     env.release()
-        # continue
-
         agent._wbc_policy.lower_body_policy.gait_indices = torch.zeros(
             (1), dtype=torch.float32
         )
 
+        if policy == "vlt":
+            reset_kwargs = {
+                "camera_infos": env_conf["camera_info"],
+                "episode": episode,
+                "condition": "forward_all",
+                "save_cond_images": True,
+            }
+        else:
+            reset_kwargs = {}
+
+        agent.reset(**reset_kwargs)
         episode_over = False
         while not episode_over:
             try:

@@ -10,6 +10,9 @@ from simple.utils import env_flag
 HYDRA_WAIT_IDLE = "/app/hydraEngine/waitIdle"
 HYDRA_RENDER_COMPLETE = "/app/updateOrder/checkForHydraRenderComplete"
 THROTTLING_ENABLE_ASYNC = "/exts/isaacsim.core.throttling/enable_async"
+RTX_AA_OP = "/rtx/post/aa/op"
+RTX_DLSSG_ENABLE = "/rtx-transient/dlssg/enabled"
+NGX_ENABLE = "/ngx/enabled"
 
 
 def _compact_dict(values: dict) -> dict:
@@ -37,6 +40,11 @@ def create_simulation_app(
         settings.append((HYDRA_RENDER_COMPLETE, 1000, 1000))
     if disable_throttling_async:
         settings.append((THROTTLING_ENABLE_ASYNC, "false", False))
+    # Isaac Sim 4.5 can segfault in headless startup when DLSS/NGX initializes on
+    # some driver/GPU combinations, so force a simpler AA path up front.
+    settings.append((RTX_AA_OP, 0, 0))
+    settings.append((RTX_DLSSG_ENABLE, "false", False))
+    settings.append((NGX_ENABLE, "false", False))
     extra_args = [f"--{key}={arg_value}" for key, arg_value, _ in settings]
 
     sim_cfg = _compact_dict({

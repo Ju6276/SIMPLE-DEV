@@ -148,46 +148,17 @@ class ReplayDecoupledAgent:
         t_now = time.monotonic()
         control_freq = self._control_frequency
 
-        if "teleop.navigate_command" in row:
-            navigate_cmd = np.asarray(row["teleop.navigate_command"]).copy()
-            base_height_cmd = np.atleast_1d(np.asarray(row["teleop.base_height_command"])).copy()
-        else:
-            # maybe we are replaying the post-processed training data
-            navigate_cmd = np.asarray(row["action"][32:]).copy()
-            base_height_cmd = np.atleast_1d(np.asarray(row["action"][31])).copy()
+        navigate_cmd = np.asarray(row["teleop.navigate_command"]).copy()
+        base_height_cmd = np.atleast_1d(np.asarray(row["teleop.base_height_command"])).copy()
         if is_pad:
             navigate_cmd[:3] = 0.0  # zero out (vx, vy, vyaw) for padded steps after data exhausted
             # NOTE we assume the upper_body_pose is absolute, otherwise we need zero-padding too
 
         target_time = t_now + 1 / control_freq
 
-        action_43d_or_36d = np.array(row["action"])
-        # action_43d_or_36d = np.array(row["observation.state"])
-        if len(action_43d_or_36d) == 43:
-            upper_body_pose = action_43d_or_36d[self._upper_body_indices]
-        else:
-            # maybe we are replaying the post-processed training data
-            # revert the joint postprocess_psi0.py
-            # Expected: 
-            # [rm.joint_names[idx] for idx in rm._joint_group_indices[group_name]] --> 
-            # ['waist_yaw_joint', 'waist_roll_joint', 'waist_pitch_joint', 'left_shoulder_pitch_joint', 
-            #   'left_shoulder_roll_joint', 'left_shoulder_yaw_joint', 'left_elbow_joint', 'left_wrist_roll_joint', 'left_wrist_pitch_joint', 'left_wrist_yaw_joint', 
-            #   'left_hand_index_0_joint', 'left_hand_index_1_joint', 'left_hand_middle_0_joint', 'left_hand_middle_1_joint', 'left_hand_thumb_0_joint', 'left_hand_thumb_1_joint', 'left_hand_thumb_2_joint', 
-            #   'right_shoulder_pitch_joint', 'right_shoulder_roll_joint', 'right_shoulder_yaw_joint', 'right_elbow_joint', 'right_wrist_roll_joint', 'right_wrist_pitch_joint', 'right_wrist_yaw_joint', 
-            #   right_hand_index_0_joint', 'right_hand_index_1_joint', 'right_hand_middle_0_joint', 'right_hand_middle_1_joint', 'right_hand_thumb_0_joint', 'right_hand_thumb_1_joint', 'right_hand_thumb_2_joint'
-            # ]
-            upper_body_pose = np.concatenate([
-                action_43d_or_36d[30:31],  # waist yaw
-                action_43d_or_36d[28:30],   # waist roll and pitch
-                action_43d_or_36d[14:21],   # left arm 
-                action_43d_or_36d[4:7],    # left hand
-                action_43d_or_36d[2:4],
-                action_43d_or_36d[0:2],
-                action_43d_or_36d[21:28],   # right arm
-                action_43d_or_36d[10:12],   # right hand
-                action_43d_or_36d[12:14],
-                action_43d_or_36d[7:10],
-            ])
+        action_43d = np.array(row["action"])
+        # action_43d = np.array(row["observation.state"])
+        upper_body_pose = action_43d[self._upper_body_indices]
 
         goal = {
             "target_upper_body_pose": upper_body_pose,

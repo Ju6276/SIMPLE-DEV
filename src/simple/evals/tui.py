@@ -6,17 +6,8 @@ import sys
 
 from rich.console import Console, Group
 from rich.panel import Panel
-from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
-
-# Statuses that should show a live (animated) spinner in the STATE column.
-_ACTIVE_STATUSES = {"creating_env", "ready", "running", "closing"}
-
-# Persistent spinner per worker row so the animation frame (derived from each
-# spinner's start_time) advances on Live auto-refresh instead of resetting to
-# frame 0 on every render.
-_state_spinners: dict[int, Spinner] = {}
 
 
 @dataclass
@@ -26,13 +17,11 @@ class WorkerProgress:
     successes: int = 0
     current_episode: str = "-"
     current_step: int = 0
-    max_episode_steps: int | None = None
     status: str = "pending"
     error: str | None = None
     setup_seconds: float | None = None
     last_episode_seconds: float | None = None
     last_steps_per_second: float | None = None
-    video_path: str | None = None
 
 
 def make_console(stream=None) -> Console:
@@ -89,10 +78,6 @@ def update_progress(
         state.status = str(payload.get("status", "running"))
         if "setup_seconds" in payload:
             state.setup_seconds = float(payload["setup_seconds"])  # type: ignore[arg-type]
-        if payload.get("max_episode_steps") is not None:
-            state.max_episode_steps = int(payload["max_episode_steps"])  # type: ignore[arg-type]
-        if payload.get("video_path") is not None:
-            state.video_path = str(payload["video_path"])
     elif event == "worker_status":
         state.status = str(payload["status"])
     elif event == "episode_start":
@@ -142,11 +127,6 @@ def render_progress(
         if state.status in {"creating_env", "ready", "running", "closing"}
     )
 
-    video_path = next(
-        (state.video_path for state in worker_states.values() if state.video_path),
-        None,
-    )
-
     avg_setup = f"{sum(setup_values) / len(setup_values):.1f}s" if setup_values else "-"
     avg_episode = f"{sum(episode_values) / len(episode_values):.1f}s" if episode_values else "-"
     avg_sps = f"{sum(sps_values) / len(sps_values):.1f}" if sps_values else "-"
@@ -173,7 +153,7 @@ def render_progress(
     )
     summary.add_row(
         f"[dim]setup[/dim] {avg_setup}  [dim]ep[/dim] {avg_episode}  [dim]step/s[/dim] {avg_sps}",
-        f"[dim]video[/dim] {video_path}" if video_path else f"[dim]log[/dim] {log_path}",
+        f"[dim]log[/dim] {log_path}",
     )
 
     workers = Table(
@@ -188,7 +168,7 @@ def render_progress(
     workers.add_column("STATE", justify="left", width=6, no_wrap=True)
     workers.add_column("EP", justify="left", width=4, no_wrap=True)
     workers.add_column("DONE", justify="left", width=4, no_wrap=True)
-    workers.add_column("STEP", justify="left", width=9, no_wrap=True)
+    workers.add_column("STEP", justify="left", width=4, no_wrap=True)
 
     status_style = {
         "pending": ("dots", "dim", "wait "),
@@ -202,25 +182,11 @@ def render_progress(
 
     for worker_id in sorted(worker_states):
         state = worker_states[worker_id]
-        spinner_name, color, label = status_style.get(state.status, ("dots", "white", state.status[:5]))
-        label = label.strip()
-        if state.status in _ACTIVE_STATUSES:
-            spinner = _state_spinners.get(worker_id)
-            if spinner is None or spinner.name != spinner_name:
-                spinner = Spinner(spinner_name, style=color)
-                _state_spinners[worker_id] = spinner
-            spinner.text = Text(label, style=color)
-            spinner.style = color
-            state_cell: object = spinner
-        else:
-            _state_spinners.pop(worker_id, None)
-            state_cell = Text(label, style=color)
+        _spinner_name, color, label = status_style.get(state.status, ("dots", "white", state.status[:5]))
+        state_cell = f"[{color}]{label}[/{color}]"
         worker_progress = f"{state.completed_episodes}/{state.total_episodes}" if state.total_episodes else "-"
         episode_label = format_episode_label(state.current_episode)[:5]
-        if state.max_episode_steps:
-            step_text = f"{state.current_step}/{state.max_episode_steps}"
-        else:
-            step_text = str(state.current_step) if state.current_step else "-"
+        step_text = str(state.current_step) if state.current_step else "-"
         workers.add_row(
             str(worker_id),
             state_cell,

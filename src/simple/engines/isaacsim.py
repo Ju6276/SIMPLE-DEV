@@ -255,7 +255,7 @@ class IsaacSimSimulator(Simulator):
             "/exts/isaacsim.core.throttling/enable_async",
             not disable_throttling_async,
         )
-        rep.settings.set_render_rtx_realtime()
+        rep.settings.set_render_rtx_realtime(antialiasing="FXAA")
         # rep.orchestrator.set_capture_on_play(False) # Data will be captured manually using step
         # carb.settings.get_settings().set_bool("/omni/replicator/captureMotionBlur", 0)
         # carb.settings.get_settings().set_bool("/rtx/post/motionblur/enabled", 0)   
@@ -1002,7 +1002,14 @@ class IsaacSimSimulator(Simulator):
             return
         raw_path = mat_info['path']
         if not os.path.isabs(raw_path):
-            raw_path = resolve_data_path(raw_path.removeprefix("data/"), auto_download=True)
+            try:
+                raw_path = resolve_data_path(raw_path.removeprefix("data/"), auto_download=True)
+            except Exception as exc:
+                print(
+                    f"Warning: failed to resolve table material {raw_path}; "
+                    f"continuing without binding the material. Root cause: {exc}"
+                )
+                return
         created = [None]
         create_mdl_material(stage, raw_path, mat_info['name'], lambda p: created.__setitem__(0, p))
         if created[0] is not None:
