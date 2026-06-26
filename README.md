@@ -501,6 +501,52 @@ TASK_NAME=$task uv run eval-decoupled-wbc \
     --headless
 ```
 
+#### Option A.1: VLA-JEPA on G1WholebodyHandoverTeleop-v0
+
+For the local VLA-JEPA deployment used in this workspace, run the policy server and
+the SIMPLE client in two separate terminals:
+
+Terminal 1, start the VLA-JEPA websocket server from the `VLA-JEPA` repo:
+
+```bash
+cd /home/d013/桌面/VLA-JEPA
+conda activate VLA_JEPA
+
+python deployment/model_server/server_policy_simple_g1.py \
+  --ckpt_path /home/d013/桌面/VLA-JEPA/checkpoints/CKPT/steps_50000_pytorch_model.pt \
+  --base_vlm_path /home/d013/桌面/VLA-JEPA/Qwen3-VL-2B-Instruct \
+  --port 10090 \
+  --cuda 0
+```
+
+Keep this terminal alive during the whole evaluation.
+
+Terminal 2, run the SIMPLE evaluation client from this repo:
+
+```bash
+cd /home/d013/桌面/SIMPLE
+
+MUJOCO_GL=egl uv run eval-decoupled-wbc \
+  simple/G1WholebodyHandoverTeleop-v0 \
+  vlajepa_decoupled_wbc \
+  train \
+  --data-format lerobot \
+  --data-dir data/evals/simple-eval/G1WholebodyHandoverTeleop-v0/level-0 \
+  --host 127.0.0.1 \
+  --port 10090 \
+  --headless \
+  --max-episode-steps 1200
+```
+
+Notes for this setup:
+
+* The SIMPLE side uses the repo-managed `.venv` through `uv run`; you do not need to
+  manually activate the SIMPLE virtual environment first.
+* The VLA-JEPA server must use the same port as the SIMPLE client. In this example both
+  sides use `10090`.
+* Results and rendered videos are written under
+  `data/evals_decoupled_wbc/vlajepa_decoupled_wbc/G1WholebodyHandoverTeleop-v0/train/`.
+
 #### Option B: Nix Environment
 
 ```bash
@@ -604,4 +650,3 @@ _More interesting tasks, including articulated objects._
 This project is licensed under the MIT.
 
 See the [LICENSE](https://www.google.com/search?q=license.md) file for details.
-
