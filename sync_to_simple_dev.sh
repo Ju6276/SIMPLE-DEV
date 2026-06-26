@@ -158,15 +158,14 @@ main() {
     exit 1
   fi
 
-  local tmp_dir
   tmp_dir="$(mktemp -d /tmp/simple-dev-sync.XXXXXX)"
-  local cleanup_tmp="1"
+  cleanup_tmp="1"
   if [[ "$KEEP_WORKTREE" == "1" ]]; then
     cleanup_tmp="0"
   fi
 
   cleanup() {
-    if [[ "$cleanup_tmp" == "1" ]] && [[ -d "$tmp_dir" ]]; then
+    if [[ "${cleanup_tmp:-1}" == "1" ]] && [[ -n "${tmp_dir:-}" ]] && [[ -d "$tmp_dir" ]]; then
       rm -rf "$tmp_dir"
     fi
   }

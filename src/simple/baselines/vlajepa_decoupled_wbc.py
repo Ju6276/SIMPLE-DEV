@@ -6,7 +6,6 @@ VLA-JEPA adapter for G1 decoupled-WBC evaluation.
 
 from __future__ import annotations
 
-import os
 import time
 
 import numpy as np
@@ -26,18 +25,6 @@ from .vlajepa_ws_client import VlajepaWebsocketClient
 DEFAULT_G1_HANDOVER_INSTRUCTION = (
     "Hand over cracker box from right hand to left hand and place it on the container."
 )
-
-
-def _env_flag(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_float(name: str, default: float) -> float:
-    value = os.getenv(name)
-    return default if value is None else float(value)
 
 
 def _build_vlajepa_state(joint_qpos: np.ndarray, height: float) -> np.ndarray:
@@ -71,27 +58,6 @@ def _action_to_upper_body_pose(action: np.ndarray) -> dict[str, float]:
     return target_upper_body_pose
 
 
-def _apply_navigate_deadband(
-    navigate_cmd: np.ndarray,
-    *,
-    enable: bool,
-    vx_deadband: float,
-    vy_deadband: float,
-    vyaw_deadband: float,
-    target_yaw_deadband: float,
-) -> np.ndarray:
-    if not enable:
-        return navigate_cmd.astype(np.float32, copy=True)
-
-    filtered = navigate_cmd.astype(np.float32, copy=True)
-    thresholds = np.array(
-        [vx_deadband, vy_deadband, vyaw_deadband, target_yaw_deadband],
-        dtype=np.float32,
-    )
-    filtered[np.abs(filtered) < thresholds] = 0.0
-    return filtered
-
-
 def _segment_l1_summary(action: np.ndarray, state_32d: np.ndarray) -> dict[str, float]:
     deltas = action[:32] - state_32d
     return {
@@ -119,13 +85,6 @@ class VlajepaDecoupledWbcAgent(SonicDecoupledWbcAgent):
         self._global_step_idx = 0
         self._last_base_height_command = 0.74
         self._reset_history = True
-        self._enable_navigate_deadband = _env_flag("SIMPLE_VLAJEPA_NAV_DEADBAND", False)
-        self._nav_vx_deadband = _env_float("SIMPLE_VLAJEPA_NAV_VX_DEADBAND", 0.10)
-        self._nav_vy_deadband = _env_float("SIMPLE_VLAJEPA_NAV_VY_DEADBAND", 0.26)
-        self._nav_vyaw_deadband = _env_float("SIMPLE_VLAJEPA_NAV_VYAW_DEADBAND", 0.05)
-        self._nav_target_yaw_deadband = _env_float(
-            "SIMPLE_VLAJEPA_NAV_TARGET_YAW_DEADBAND", 0.08
-        )
 
         indices = self._dwbc_robot_model.get_joint_group_indices("upper_body")
         self.sonic_upper_joint_names = [
@@ -193,42 +152,16 @@ class VlajepaDecoupledWbcAgent(SonicDecoupledWbcAgent):
                 )
 
             for action in pred_action:
-                raw_navigate_cmd = action[32:36].astype(np.float32)
-                filtered_navigate_cmd = _apply_navigate_deadband(
-                    raw_navigate_cmd,
-                    enable=self._enable_navigate_deadband,
-                    vx_deadband=self._nav_vx_deadband,
-                    vy_deadband=self._nav_vy_deadband,
-                    vyaw_deadband=self._nav_vyaw_deadband,
-                    target_yaw_deadband=self._nav_target_yaw_deadband,
-                )
+                navigate_cmd = action[32:36].astype(np.float32)
                 for _ in range(self.upsample_factor):
                     self.queue_action(
                         ActionCmd(
                             "vla_cmd",
                             target_upper_body_pose=_action_to_upper_body_pose(action),
-                            navigate_cmd=filtered_navigate_cmd,
+                            navigate_cmd=navigate_cmd,
                             base_height_command=action[31:32].astype(np.float32),
                         )
                     )
-
-            if _should_log_debug(self._global_step_idx) and pred_action.shape[0] > 0:
-                raw_nav = pred_action[0][32:36].astype(np.float32)
-                filtered_nav = _apply_navigate_deadband(
-                    raw_nav,
-                    enable=self._enable_navigate_deadband,
-                    vx_deadband=self._nav_vx_deadband,
-                    vy_deadband=self._nav_vy_deadband,
-                    vyaw_deadband=self._nav_vyaw_deadband,
-                    target_yaw_deadband=self._nav_target_yaw_deadband,
-                )
-                print(
-                    "[VLAJEPADebugDeadband] "
-                    f"step={self._global_step_idx} "
-                    f"raw_nav={np.round(raw_nav, 4).tolist()} "
-                    f"filtered_nav={np.round(filtered_nav, 4).tolist()} "
-                    f"enabled={self._enable_navigate_deadband}"
-                )
 
         action_cmd = super().get_action(observation, instruction, **kwargs)
         if action_cmd.type != "vla_cmd":
