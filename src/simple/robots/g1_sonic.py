@@ -27,7 +27,6 @@ from simple.core.action import ActionCmd
 from simple.core.types import Pose
 
 from gear_sonic.utils.mujoco_sim.configs import SimLoopConfig
-from gear_sonic.data.robot_model.instantiation.g1 import instantiate_g1_robot_model
 from gear_sonic.utils.mujoco_sim.robot import Robot as GearSonicRobot
 from gear_sonic.utils.mujoco_sim.unitree_sdk2py_bridge import ElasticBand
 
@@ -132,9 +131,6 @@ class G1Sonic(CuRoboMixin,Humanoid,Robot,HeadCamMountable,HasDexterousHand):
 
         self.command = None # [vx, yaw, vy, d_height, torso_yaw, torso_pitch, torso_roll] shape: (1,7)
         self._debug_ctrl_err = {}
-
-        # adapted from run_sim_loop.main
-        self.sonic_robot_model = instantiate_g1_robot_model()
 
         # adapted from BaseSimulator.__init__
         self.env_name = self.sonic_config["ENV_NAME"]

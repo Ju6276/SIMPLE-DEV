@@ -165,6 +165,10 @@ def _run_eval_worker(
     worker_result_path: str | None = None,
     progress_reporter: Callable[[dict[str, Any]], None] | None = None,
 ):
+    def load_agent_class():
+        policy_module = importlib.import_module(f"simple.baselines.{policy}")
+        return getattr(policy_module, f"{snake_to_pascal(policy)}Agent")
+
     def persist_payload(kind: str, payload: Any):
         if not worker_result_path:
             return
@@ -235,6 +239,10 @@ def _run_eval_worker(
     )
     report("worker_init", total_episodes=len(episode_indices), status="creating_env")
 
+    # Import decoupled-WBC policies before Isaac Sim startup so their
+    # pinocchio/hpp-fcl native stack is resolved before Isaac loads its own.
+    agent_clazz = load_agent_class()
+
     setup_start_time = time.perf_counter()
     print(f"Creating environment: {env_id}")
     make_kwargs = dict(
@@ -261,8 +269,6 @@ def _run_eval_worker(
 
     robot = task.robot
 
-    policy_module = importlib.import_module(f"simple.baselines.{policy}")
-    agent_clazz = getattr(policy_module, f"{snake_to_pascal(policy)}Agent")
     agent = agent_clazz(task.robot, host, port, sonic_config=sonic_config)
     rollout_env = raw_env
     if rollout_save_dir:
