@@ -6,6 +6,7 @@ VLA-JEPA adapter for G1 decoupled-WBC evaluation.
 
 from __future__ import annotations
 
+import os
 import time
 
 import numpy as np
@@ -22,9 +23,18 @@ from simple.robots.g1_wholebody import (
 from .vlajepa_ws_client import VlajepaWebsocketClient
 
 
-DEFAULT_G1_HANDOVER_INSTRUCTION = (
-    "Hand over cracker box from right hand to left hand and place it on the container."
-)
+DEFAULT_VLAJEPA_INSTRUCTION = "Complete the robot task shown in the scene."
+
+
+def _resolve_instruction(instruction: str | None) -> str:
+    override = os.environ.get("VLAJEPA_INSTRUCTION_OVERRIDE")
+    if override:
+        return override
+    if instruction:
+        normalized = " ".join(instruction.split())
+        if normalized:
+            return normalized
+    return DEFAULT_VLAJEPA_INSTRUCTION
 
 
 def _build_vlajepa_state(joint_qpos: np.ndarray, height: float) -> np.ndarray:
@@ -111,9 +121,7 @@ class VlajepaDecoupledWbcAgent(SonicDecoupledWbcAgent):
             )
             payload = {
                 "batch_images": [[observation["head_stereo_left"]]],
-                "instructions": [
-                    instruction or DEFAULT_G1_HANDOVER_INSTRUCTION
-                ],
+                "instructions": [_resolve_instruction(instruction)],
                 "state": state_32d[None, None, :],
                 "reset": self._reset_history,
             }

@@ -109,6 +109,32 @@ class HssdSceneManager(SceneManager):
             
             scene_dir = os.path.dirname(usd_path)
 
+            def _ensure_root_hash_alias(abs_dir: str) -> None:
+                match = re.fullmatch(r"/([A-Za-z0-9]+)/(props|textures)", abs_dir)
+                if not match:
+                    return
+
+                hash_id = match.group(1)
+                tmp_root = f"/tmp/{hash_id}"
+                root_alias = f"/{hash_id}"
+
+                if os.path.exists(root_alias):
+                    return
+
+                try:
+                    os.symlink(tmp_root, root_alias, target_is_directory=True)
+                    print(f"Hack: Symlinked {root_alias} -> {tmp_root}")
+                except PermissionError as e:
+                    raise RuntimeError(
+                        "Failed to prepare HSSD root alias for an absolute USD asset path. "
+                        f"Scene references {abs_dir}, which requires a root-level alias. "
+                        f"Create it once with: sudo ln -sfn {tmp_root} {root_alias}"
+                    ) from e
+                except OSError as e:
+                    raise RuntimeError(
+                        f"Failed to prepare HSSD root alias {root_alias} -> {tmp_root}."
+                    ) from e
+
             def _mirror_tree(src: str, dst: str) -> None:
                 if not os.path.exists(src):
                     return
@@ -209,6 +235,7 @@ class HssdSceneManager(SceneManager):
                 folder = os.path.basename(abs_dir)
                 src = os.path.join(scene_dir, folder)
                 try:
+                    _ensure_root_hash_alias(abs_dir)
                     _mirror_tree(src, abs_dir)
                     _ensure_casefold_aliases(abs_dir)
                 except (OSError, shutil.Error) as e:

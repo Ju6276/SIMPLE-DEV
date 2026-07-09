@@ -37,7 +37,7 @@ from simple.evals.tui import (
     restore_cursor,
     update_progress,
 )
-from simple.utils import snake_to_pascal
+from simple.utils import resolve_data_path, snake_to_pascal
 
 
 def _append_eval_stats_line(eval_dir: str, line: str) -> None:
@@ -179,6 +179,37 @@ def _run_eval_worker(
         if progress_reporter is not None:
             progress_reporter({"event": event, **payload})
 
+    def preflight_scene_assets(state_dict: dict[str, Any]) -> None:
+        dr_state_dict = state_dict.get("dr_state_dict")
+        if not isinstance(dr_state_dict, dict):
+            return
+
+        scene_state = dr_state_dict.get("scene")
+        if not isinstance(scene_state, dict):
+            return
+
+        scene_uid = scene_state.get("uid")
+        scene_name = scene_state.get("name")
+        if not (
+            isinstance(scene_uid, str)
+            and scene_uid.startswith("hssd:")
+            and isinstance(scene_name, str)
+        ):
+            return
+
+        rel_path = f"scenes/hssd/{scene_name}"
+        try:
+            resolve_data_path(rel_path, auto_download=True)
+        except FileNotFoundError as exc:
+            zip_name = f"scenes_hssd_{scene_name}.zip"
+            raise FileNotFoundError(
+                "Missing HSSD scene assets required by this evaluation dataset: "
+                f"{scene_uid} -> {scene_name}. Expected local directory "
+                f"`data/{rel_path}` or downloadable archive `{zip_name}`. "
+                "If this machine cannot access Hugging Face, download and extract "
+                f"`{zip_name}` into `data/` manually before rerunning the eval."
+            ) from exc
+
     if sonic_config is None:
         sonic_config = _make_sonic_config()
 
@@ -239,6 +270,10 @@ def _run_eval_worker(
     )
     report("worker_init", total_episodes=len(episode_indices), status="creating_env")
 
+    if episode_indices:
+        first_env_conf, _ = get_episode(dataset, episode_indices[0])  # type: ignore[arg-type]
+        preflight_scene_assets(first_env_conf)
+
     # Import decoupled-WBC policies before Isaac Sim startup so their
     # pinocchio/hpp-fcl native stack is resolved before Isaac loads its own.
     agent_clazz = load_agent_class()
@@ -265,6 +300,7 @@ def _run_eval_worker(
 
     # Use provided success_criteria or fall back to task's metadata
     if success_criteria is not None:
+        task.success_criteria = success_criteria
         task.metadata["success_criteria"] = success_criteria
 
     robot = task.robot
@@ -310,6 +346,20 @@ def _run_eval_worker(
 
         observation, info = env.reset(options={"state_dict": env_conf})
 
+        # Reset the agent BEFORE stabilization so the WBC pipeline starts the
+        # episode fresh and the upper body gets the smooth 2-second ramp to the
+        # default pose on every episode (not just the first).
+        if policy == "vlt":
+            reset_kwargs = {
+                "camera_infos": env_conf["camera_info"],
+                "episode": episode,
+                "condition": "forward_all",
+                "save_cond_images": True,
+            }
+        else:
+            reset_kwargs = {}
+        agent.reset(**reset_kwargs)
+
         # engage RL policy immediately
         agent._wbc_policy.lower_body_policy.use_policy_action = True
 
@@ -344,17 +394,6 @@ def _run_eval_worker(
             (1), dtype=torch.float32
         )
 
-        if policy == "vlt":
-            reset_kwargs = {
-                "camera_infos": env_conf["camera_info"],
-                "episode": episode,
-                "condition": "forward_all",
-                "save_cond_images": True,
-            }
-        else:
-            reset_kwargs = {}
-
-        agent.reset(**reset_kwargs)
         episode_over = False
         while not episode_over:
             try:
