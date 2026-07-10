@@ -197,6 +197,7 @@ main() {
     --exclude '.git/' \
     --exclude '.agents/' \
     --exclude '.codex/' \
+    --exclude '.venv/' \
     --exclude 'data/' \
     --exclude 'third_party/*/.git' \
     --exclude '__pycache__/' \
