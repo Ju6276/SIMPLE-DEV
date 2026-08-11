@@ -1,607 +1,550 @@
-<h1 align="center">SIMPLE: Simulation-Based Policy Learning and Evaluation for Humanoid Loco-manipulation
-</h1>
+# Pi05-Simple-Client
 
-<div align="center">
+本仓库是 SIMPLE 的 pi0.5 客户端评测环境，专门用于配合 `Flash-Pi05-Simple-Server` 跑 SIMPLE 数据集上的 Unitree G1 humanoid 任务。
 
-[![arXiv](https://img.shields.io/badge/arXiv-2606.08278-df2a2a.svg)](https://arxiv.org/abs/2606.08278)
-[![Static Badge](https://img.shields.io/badge/Project-Page-a)](https://psi-lab.ai/SIMPLE)
-[![Model](https://img.shields.io/badge/Hugging%20Face-Model-yellow)](https://huggingface.co/USC-PSI-Lab/psi-model)
-[![Data](https://img.shields.io/badge/Hugging%20Face-Data-pink)](https://huggingface.co/datasets/USC-PSI-Lab/psi-data)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+当前推荐任务：
 
-</div>
-
-
-<p align="center">
-  <img src="assets/teaser.webp" alt="SIMPLE teaser image" />
-</p>
-
-
-Contributors: [Songlin Wei](https://songlin.github.io/)\*, [Zhenhao Ni](https://nizhenhao-3.github.io/)\*, [Jie Liu](https://jie0530.github.io/)\*, [Zhenyu Zhao](https://zhenyuzhao.com/)\*, [Junjie Ye](https://junjieye.com/), [Hongyi Jing](https://hongyijing.me/), Junkai Xia, [Xiawei Liu](https://www.xiaweiliu.com/), [Michael Leong](https://leongmichael.github.io/), [Liang Heng](https://liangheng121.github.io/), Di Huang, [Yue Wang](https://yuewang.xyz/)†
-
-> 
-
-## Table of Contents
-- [What is SIMPLE?](#what～is～SIMPLE)
-- [System Requirements](#system-requirements)
-- [Installation](#installation)
-  - [[Option 1] UV setup (Quickest)](#option-1-uv-setup-quickest)
-  - [[Option 2] Nix setup](#option-2-nix-setup)
-  - [[Option 3] Docker setup](#option-3-docker-setup)
-- [Data Generation & Pipeline](#-data-generation--pipeline)
-  - [1. Data Collection ](#1-data-collection-methods)
-  - [2. Data Post-processing](#2-post-processing)
-  - [3. Fine-Tuning](#3-fine-tuning)
-- [Evaluation in SIMPLE](#-evaluation-in-simple)
-- [📊 Simulation Benchmarking Results](#-simulation-benchmarking-results)
-- [Citation](#citation)
-- [License](#license)
-
-## What is SIMPLE?
-
-SIMPLE stands for SIMulation-based Policy Learning and Evaluation.
-
-It is a `simple` simulation environment supports:
-  + multiple agents: (franka arm/aloha bimanual arms/dexmate wheeled robot and unitree g1 humanoid!)
-  + 1000+ Objaverse assets
-  + 50+ Habitat HSSD scenes
-  + 50+ humanoid wholebody loco-manipulation tasks
-
-## System Requirements
-
-SIMPLE is built on top of `IsaacSim 4.5` and `MuJoCo 3.3`.
-
-| Component | Minimum | Recommended |
-| :--- | :--- | :--- |
-| **OS** | Ubuntu 22.04 | Ubuntu 22.04 |
-| **CPU** | Intel Core i7 / AMD Ryzen 7 | Intel Core i9 / AMD Ryzen 9 |
-| **RAM** | 32 GB | 64 GB |
-| **GPU** | NVIDIA RTX 2070 (8 GB VRAM) | NVIDIA RTX 3080 Ti / 4090 (16+ GB VRAM) |
-| **NVIDIA Driver** | 535.x | Latest |
-| **CUDA** | 12.x | 12.x |
-| **Python** | 3.10 | 3.10 |
-| **Storage** | 50 GB SSD | 100+ GB NVMe SSD |
-
-> An RTX-class NVIDIA GPU is required. GTX and older architectures are not supported.
-
-
-## Installation
-
-Clone the project:
-
-
+```text
+simple/G1WholebodyHandoverTeleop-v0
 ```
 
-git clone git@github.com:physical-superintelligence-lab/SIMPLE.git
+当前推荐策略：
 
+```text
+pi05_decoupled_wbc
 ```
 
-Change directory to the project root:
+这个仓库负责仿真环境、G1 decoupled WBC、episode 评测、动作执行、日志和视频保存；模型推理 server 由另一个仓库负责：
 
-
-```
-
-cd SIMPLE
-
-```
-
-Pull all submodules
-
-```
-
-git submodule update --init --recursive
-
-```
-
-We offer three options for setting up SIMPLE:
-
-## [Option 1] UV setup (Quickest)
-
-Install `uv` if not already done
 ```bash
-curl -LsSf [https://astral.sh/uv/install.sh](https://astral.sh/uv/install.sh) | sh
-
+/cpfs_infra/shared/fangbaozhong/Flash-Pi05-Simple-Server
 ```
 
-Install all dependencies at once
+## 两个仓库如何配合
 
+典型实验需要两个终端：
+
+```text
+Terminal 1: Flash-Pi05-Simple-Server
+  启动 pi0.5 policy server
+  - PyTorch baseline
+  - Triton full baseline
+  - Triton + draft route
+
+Terminal 2: Pi05-Simple-Client
+  启动 SIMPLE eval
+  - 连接 127.0.0.1:22085
+  - 发送 observation/image、states、prompt
+  - 接收 actions、accepted_prefix_len、timing
+  - 在 MuJoCo G1 decoupled WBC 中执行动作
 ```
-UV_HTTP_TIMEOUT=3000 GIT_LFS_SKIP_SMUDGE=1 uv sync --all-groups --index-strategy unsafe-best-match
 
+server 返回的动作通常是 `[30, 36]`。客户端会根据 `SIMPLE_PI05_REPLAN_STEPS` 和 server 返回的 `accepted_prefix_len` 决定本轮实际执行多少步。
+
+## GitHub 分支内容和外部资源
+
+推送到 GitHub 的分支只包含 SIMPLE 客户端代码、配置、脚本和文档，不包含本地运行生成的大文件或外部资源。clone 后需要重新准备这些内容：
+
+- `.venv/`、`.venv-nix/`：Python/Nix 虚拟环境，不推送；clone 后重新运行 `uv sync` 或 `nix develop`。
+- `data/`：SIMPLE 数据、eval 数据、视频、jsonl 日志等，不推送；需要按本文档准备到本机路径。
+- `third_party/` 下的大型外部库：仓库只应记录 submodule 或源码引用，不应直接提交本地构建产物；clone 后运行 `git submodule update --init --recursive ...`。
+- IsaacSim、MuJoCo、CuRobo、Unitree SDK、XRoboToolkit、decoupled_wbc、gear_sonic 等外部依赖不随普通 GitHub 代码分支一起打包；需要按环境配置重新安装。
+- `assets/`、`artifacts/`、`cache/`、`videos/`、`wandb/`、`output/`、`.runtime-state/`：本地缓存、日志或结果，不推送。
+- pi0.5 模型和 Triton/draft artifact 由 `Flash-Pi05-Simple-Server` 管理；客户端只连接 server，不在本仓库保存模型权重。
+
+如果别人 clone 本仓库，需要先准备 submodule、Python 环境、MuJoCo headless 运行环境、SIMPLE eval 数据，再连接已经启动的 `Flash-Pi05-Simple-Server`。
+
+## 代码位置
+
+pi0.5 相关客户端代码主要在：
+
+```text
+src/simple/baselines/pi05.py                  # 基础 pi0.5 websocket agent
+src/simple/baselines/pi05_decoupled_wbc.py    # G1 handover 推荐使用的 decoupled WBC agent
+src/simple/cli/eval_decoupled_wbc.py          # eval-decoupled-wbc 命令入口
+scripts/eval_remote_policy.sh                 # 远程 policy eval 包装脚本
 ```
 
-Install CuRobo
+`Pi05DecoupledWbcAgent` 会：
 
+- 从 SIMPLE observation 中取 `head_stereo_left` 作为 `observation/image`
+- 从 G1 `joint_qpos` 中拼出 pi0.5 需要的状态
+- 连接 `openpi_client.websocket_client_policy.WebsocketClientPolicy(host, port)`
+- 向 server 发送 `__reset_policy_state__` 和 `__executed_steps__`
+- 读取 `accepted_prefix_len`、`policy_timing`、`server_timing`
+- 将 36 维 pi0.5 action 转成 decoupled WBC 的 upper-body、waist、base height 和 navigation command
+- 写出 timing log 和 executed action log
+
+## 固定实验设置
+
+为了让 PyTorch baseline、Triton full baseline 和 draft route 可比较，建议固定：
+
+- 任务：`G1WholebodyHandoverTeleop-v0`
+- split：`train`
+- 数据格式：`lerobot`
+- 数据目录：`data/evals/simple-eval/G1WholebodyHandoverTeleop-v0/level-0`
+- 仿真后端：`mujoco`
+- policy：`pi05_decoupled_wbc`
+- server 地址：`127.0.0.1:22085`
+- episode 数：baseline 可先用 `5`，正式统计建议 `10` 或更多
+- draft route：显式设置 `SIMPLE_PI05_REPLAN_STEPS=20`
+
+## 环境准备
+
+进入客户端仓库：
+
+```bash
+cd /cpfs_infra/shared/fangbaozhong/Pi05-Simple-Client
 ```
+
+初始化 submodule。HandoverTeleop 使用 decoupled WBC，下面这些 submodule 建议统一切到 https URL，避免无 SSH key 时拉取失败：
+
+```bash
+git config submodule.third_party/decoupled_wbc.url https://github.com/songlin/decoupled_wbc.git
+git config submodule.third_party/gear_sonic.url https://github.com/songlin/gear_sonic.git
+git config submodule.third_party/unitree_sdk2_python.url https://github.com/songlin/unitree_sdk2_python.git
+git config submodule.third_party/XRoboToolkit-PC-Service-Pybind_X86_and_ARM64.url https://github.com/songlin/XRoboToolkit-PC-Service-Pybind_X86_and_ARM64.git
+git config submodule.third_party/openpi-client.url https://github.com/songlin/openpi-client.git
+
+git submodule update --init --recursive third_party/decoupled_wbc
+git submodule update --init --recursive third_party/gear_sonic
+git submodule update --init --recursive third_party/unitree_sdk2_python
+git submodule update --init --recursive third_party/XRoboToolkit-PC-Service-Pybind_X86_and_ARM64
+git submodule update --init --recursive third_party/openpi-client
+```
+
+安装 Python 环境。优先使用已有 `.venv`；如果需要重建：
+
+```bash
+GIT_LFS_SKIP_SMUDGE=1 UV_HTTP_TIMEOUT=3000 \
+uv sync --all-groups --index-strategy unsafe-best-match
+```
+
+如果需要 CuRobo：
+
+```bash
 bash scripts/install_curobo.sh
-
 ```
 
-Activate the environment:
-
-```
-source .venv/bin/activate
-
-```
-
-Verify the installation by printing the version number
-
-```
-python -c "import simple; print(simple.__version__)"
-
-```
-
-[Optional] Build the docs.
-
-```
-make live
-
-```
-
-Open http://127.0.0.1:8005 in a browser to view the documentation.
-
-> The document are working in progress. Feel free to raise questions using github issue, we will try to complete the document construction as soon as possible.
-
-## [Option 2] Nix setup
-
-We recommend using [nix](https://nixos.org/) on fresh new linux host, otherwise, if you alread have install NVIDIA driver and CUDA, it will be faster to setup SIMPLE through `uv`.
-
-> [Nix](https://nixos.org/) is a modern package manager and build system that focuses on reproducibility, isolation, and declarative system configuration.
-
-> Instead of installing software directly into your system (like apt or pip), Nix builds everything in isolated environments and stores them in the /nix/store, where each package version is uniquely identified by a hash.
-
-1. Install Nix first, for all interactive questions, enter `y`:
+验证 SIMPLE 能导入：
 
 ```bash
-sh <(curl --proto '=https' --tlsv1.2 -L [https://nixos.org/nix/install](https://nixos.org/nix/install)) --daemon
-
+./.venv/bin/python -c "import simple; print(simple.__version__)"
 ```
 
-2. After Nix installation, open up a new shell to proceed.
+## MuJoCo-only 运行方式
 
-If you encounter issues with `nix` command not found, try
+pi0.5 handover 评测建议先用 MuJoCo-only 跑通，绕开 IsaacSim 变量。
+
+每次 eval 前设置：
 
 ```bash
-export PATH=/nix/var/nix/profiles/default/bin:$PATH
+cd /cpfs_infra/shared/fangbaozhong/Pi05-Simple-Client
 
-
+export MUJOCO_GL=egl
+export PYTHONFAULTHANDLER=1
+export TASK=G1WholebodyHandoverTeleop-v0
+export SERVER_HOST=127.0.0.1
+export SERVER_PORT=22085
+export DATA_DIR=data/evals/simple-eval/$TASK/level-0
 ```
 
-3. Pull git modules recursively
+确认数据目录存在：
 
 ```bash
-git submodule update --init --recursive
-
+ls "$DATA_DIR"
 ```
 
-Run the prerequisite check once on a new host:
+如果数据目录不存在，先确认 SIMPLE 数据和 eval 数据是否已经准备到 `data/evals/simple-eval/` 下。
+
+## 跑 PyTorch baseline eval
+
+先在 `Flash-Pi05-Simple-Server` 终端启动 PyTorch baseline server：
 
 ```bash
-./scripts/nix/prereq-check.sh
+cd /cpfs_infra/shared/fangbaozhong/Flash-Pi05-Simple-Server
 
+export MUJOCO_GL=egl
+export PYTHONFAULTHANDLER=1
+
+uv run --no-sync scripts/serve_policy.py \
+  --port 22085 \
+  --simple-dataset-root /cpfs_infra/shared/fangbaozhong/simple-data/simple/G1WholebodyHandoverTeleop-v0 \
+  policy:checkpoint \
+  --policy.config pi05_simple_g1_handover_teleop \
+  --policy.dir /cpfs_infra/shared/fangbaozhong/psi-model/openpi-05/G1WholebodyHandoverTeleop-v0/40000
 ```
 
-`nix develop` auto-booststraps dependencies on first entry (or when `uv.lock` / `pyproject.toml` changes).
-
-Start the dev shell:
+然后在本仓库运行 SIMPLE eval：
 
 ```bash
-nix --extra-experimental-features "nix-command flakes" develop
-
-```
-
-Or run a single command inside the dev shell:
-
-```bash
-env -u LD_LIBRARY_PATH nix --extra-experimental-features "nix-command flakes" develop -c <command>
-
-```
-
-Do not activate the virtual environment directly with `source .venv/bin/activate` or `source .venv-nix/bin/activate`.
-This repo expects the Nix shell and the Python environment to be used together. The virtual environment alone is not a supported runtime.
-If your IDE terminal auto-sources `.venv-nix/bin/activate`, disable that behavior for this workspace or `deactivate` before entering through `nix develop`.
-
-Check if install successfully.
-
-```
-python -c "import simple; print(simple.__version__)"
-
-```
-
-You should see version number printed.
-
-* If encouter installtion or running issues, please checkout `Troubleshootings` in the Docs
-
-
-### Nix Notes
-
-The Nix runtime is documented in detail in [`docs/source/nix-runtime.md`](https://www.google.com/search?q=./docs/source/nix-runtime.md).
-
-Short version:
-
-* Mutually exclusive with Docker.
-* Intended host baseline: Linux with NVIDIA drivers already installed, especially Ubuntu hosts.
-* Run `./scripts/nix/prereq-check.sh` first on a new host.
-* Nix owns userspace; the host only owns the NVIDIA driver boundary.
-* The shell fails early on runtime pollution from `LD_LIBRARY_PATH`, `PYTHONPATH`, `PYTHONHOME`, or `LD_PRELOAD`.
-* The default Python environment is `.venv-nix`.
-* Bootstrap entry points are `./scripts/nix/bootstrap-python.sh`, `./scripts/nix/bootstrap-gpu.sh`, and `./scripts/nix/bootstrap.sh`.
-* Prefer importing `simple` as a library from inside the dev shell; treat the CLI as a thin convenience layer.
-
-Operational notes:
-
-* Remove a root-owned `.venv` left by older Docker runs with `sudo rm -rf .venv`.
-* Use `SIMPLE_AUTO_BOOTSTRAP=0` to skip auto-setup, or `SIMPLE_FORCE_BOOTSTRAP=1` to force re-bootstrap.
-* If you need to run `nix` from inside the dev shell, prefer `env -u LD_LIBRARY_PATH nix --extra-experimental-features "nix-command flakes" ...`.
-
-### [Option 3] Docker setup
-
-We also support building and running SIMPLE in docker. Please refer to the documents for [docker setup](https://www.google.com/search?q=docs/source/tutorials/docker.md).
-
----
-
-## ⚙️ Data Generation & Pipeline
-
-SIMPLE provides a scalable pipeline to generate, process, and train policies using synthesized simulation data.
-
-### 1. Data Collection 
-
-We support two primary interfaces for gathering  data: **Teleoperation (human-in-the-loop)** and **Automated Motion Planning**. 
-
-Before running, adjust your environment variables to match your system topology.
-```bash
-# Example configurations (Adjust CUDA_VISIBLE_DEVICES and DISPLAY based on your host)
-export MUJOCO_GL="egl"
-export CUDA_VISIBLE_DEVICES="0" 
-export DISPLAY=":1"
-```
-
-
-
-
-##### Stage 1: Teleoperation in MuJoCo
-
-We perform the initial human-in-the-loop teleoperation inside the lightweight MuJoCo engine. This ensures minimal control loop latency and high-frequency physical interactions during the demonstration tracking.
-
-**Example Usage:**
-
-```bash
-export TASK_NAME=G1WholebodyOpenTrashCanTeleop-v0
-
-python -m simple.cli.teleop_decoupled_wbc \
-  simple/$TASK_NAME \
-  --target=graspnet1b:0 \
-  --sim-mode=mujoco \
-  --record \
-  --no-headless \
-  --success-criteria=2
-
-
-```
-> 🥽 **Hardware Setup:** We utilize **Pico VR headsets** for immersive human-in-the-loop teleoperation. For specific hardware configuration, controller mapping, and connection details, please refer to the [Teleoperation Setup Guide](docs/source/tutorials/teleop.md).
-
-
-> 💡 *To explore additional customizable options for teleoperation, run:*
-> `python -m simple.cli.teleop_decoupled_wbc --help`
-
-Supported Wholebody Teleop Tasks Include:
-
-* `simple/G1WholebodyOpenTrashCanTeleop-v0`
-* `simple/G1WholebodyBendPickTeleop-v0`
-* `simple/G1WholebodyBendPickAndPlaceTeleop-v0`
-* `simple/G1WholebodyBendHandoverTeleop-v0`
-* `simple/G1WholebodyPushOfficeChairTeleop-v0`
-* `simple/G1WholebodyOpenFaucetTeleop-v0`
-* `simple/G1WholebodyOpenOvenTeleop-v0`
-* `simple/G1WholebodyCloseDoorTeleop-v0`
-* `simple/G1WholebodyXMovePickTeleop-v0`
-* `simple/G1WholebodyXMoveBendPickTeleop-v0`
-* `simple/G1WholebodyLocomotionPickBetweenTablesTeleop-v0`
-* `simple/G1WholebodyPickAndPlaceAndHugContainerTeleop-v0`
-* `simple/G1WholebodyHandoverTeleop-v0`
-
-
-##### Stage 2: Photorealistic Replay & Isaac Sim Rendering
-
-Once raw trajectories are successfully captured, pass them into the `replay_decoupled_wbc` suite. By specifying `--sim-mode=mujoco_isaac`, this stage replays the actions in MuJoCo while driving **Isaac Sim** simultaneously as a synchronized rendering engine. This step processes the raw stream into standard dataset structures (LeRobot format).
-
-**Example Usage:**
-
-```bash
-# Ensure $TASK_NAME matches the task used in Stage 1
-python -m simple.cli.replay_decoupled_wbc \
-  simple/$TASK_NAME \
-  --data-dir=data/teleop_decoupled_wbc/simple/$TASK_NAME/level-0/ \
-  --sim-mode=mujoco_isaac \
-  --no-headless \
-  --render-hz=50 \
-  --save-dir=data/replay_decoupled_wbc_output \
-  --record \
-  --resume \
-  --success-criteria=0.2
-
-```
-
-> 💡 **Tip:** If the replay success rate is low, try lowering the `--success-criteria` first.
-
-
-
-#### B. Automated Motion Planning 
-
-To bypass manual human interaction and scale up synthetic data generation, the `simple.cli.datagen` pipeline directly integrates **CuRobo for automated motion planning**. This allows us to procedurally batch-produce optimal demonstration trajectories without human teleop.
-
-Unlike the two-stage teleoperation process, **Motion Planning can be executed in a single step**. By setting `--sim-mode=mujoco_isaac`, the pipeline resolves the fast contact physics and motion planning within MuJoCo, while simultaneously driving Isaac Sim for photorealistic rendering. This directly outputs the final dataset in the standard LeRobot format.
-
-**Example Usage:**
-
-```bash
-export TASK_NAME=G1WholebodyTabletopHandoverMP-v0
-
-python -m simple.cli.datagen \
-  simple/$TASK_NAME \
-  --sim-mode=mujoco_isaac \
-  --render-hz=50 \
-  --no-headless \
-  --num-episodes=10
-
-```
-
-
-
-
-
-### 2. Post-processing
-
-To prepare the generated datasets for policy learning, we need to post-process the raw output data to be strictly compatible with the training pipeline of our foundation model, [Psi-0](https://github.com/physical-superintelligence-lab/Psi0).
-
-We provide two distinct post-processing scripts depending on how the data was collected:
-
-#### A. Post-processing Motion Planning Data
-For data generated via the automated motion planning pipeline (`datagen.py`), use `postprocess_psi0.py`. **This script supports wildcard matching (`*`)** to seamlessly merge data from multiple parallel generation batches into a single unified dataset.
-
-**Example Usage:**
-```bash
-python scripts/postprocess_psi0.py \
-  --sim-root="data/datagen*/simple/G1WholebodyXMoveBendPickMP-v0/level-0/" \
-  --out-dir=data/processed_psi0/G1WholebodyXMoveBendPickMP-v0 \
-  --skip=60
-
-```
-
-#### B. Post-processing Teleoperation Data
-
-For data captured through human teleoperation and rendered via Isaac Sim , use `postprocess_psi0_sonic.py`. Similarly, this script utilizes wildcard matching (`*`) to merge data from multiple teleop replay sessions.
-
-**Example Usage:**
-
-```bash
-python scripts/postprocess_psi0_sonic.py \
-  --sim-root="data/replay_decoupled_wbc_output*/simple/G1WholebodyPushOfficeChairTeleop-v0/level-0/" \
-  --out-dir=data/processed_psi0/G1WholebodyPushOfficeChairTeleop-v0 \
-  --skip=0 \
-  --total_episodes=100
-
-```
-
-**Key Arguments:**
-
-* `--sim-root`: The input directory containing the generated dataset. Note that quotes `""` are highly recommended when using wildcards (`*`) to prevent premature shell expansion.
-* `--out-dir`: The output directory where the Psi-0 compatible dataset will be saved.
-* `--skip`: Number of initial frames to skip (useful for bypassing static setup or initialization frames).
-* `--total_episodes`: Limits the total number of valid episodes to process and merge.
-
-
-
-### 3. Fine-Tuning
-
-To train or fine-tune foundation models directly using the structured datasets generated from the pipeline, we provide seamless integration with the **Psi-0** training stack.
-
-> 👉 **Quick Start:** You can skip fine-tuning entirely and evaluate right away by downloading our pre-trained [checkpoints for SIMPLE](https://huggingface.co/USC-PSI-Lab/psi-model/tree/main/psi0/simple-checkpoints).
-
-**Data Preparation:**
-If you wish to train from scratch or fine-tune, download the required [SIMPLE task data](https://huggingface.co/datasets/USC-PSI-Lab/psi-data/tree/main/simple) and extract it to your local workspace:
-
-```bash
-export TASK_NAME=G1WholebodyXMovePickTeleop-v0
-
-hf download USC-PSI-Lab/psi-data \
-  simple/$TASK_NAME.zip \
-  --local-dir=data \
-  --repo-type=dataset
-
-unzip data/simple/$TASK_NAME.zip -d data/simple
-
-```
-
-**Training Integration:**
-
-> 💡 **For full training instructions, please refer to the [Psi-0 Project README](https://github.com/physical-superintelligence-lab/Psi0).** >
-> The Psi-0 repository contains comprehensive, up-to-date documentation on setting up training environment variables, visualizing episodes, and launching the training scripts (e.g., `bash scripts/train/psi0/finetune-simple-psi0.sh`).
-
-
-
-## 🎯 Evaluation in SIMPLE
-
-To rigorously evaluate the robustness and generalization of learned policies, we benchmark our foundation model [Psi-0](https://github.com/physical-superintelligence-lab/Psi0) using a decoupled **Client-Server architecture**. The server hosts the model inference, while the SIMPLE client runs the simulation environment.
-
----
-
-### 🖥️ Server Side: Model Inference (Executed in the Psi-0 Repository)
-
-#### Step 1: Environment & Checkpoint Setup
-Configure the evaluation environment variables and paths within your **Psi-0** project workspace.
-
-1. **Configure Environment Variables:** Inside the **Psi-0** project root, create and source your `.env` file based on the sample:
-```bash
-  cp .env.sample .env
-  # Edit .env to include your HF_TOKEN, WANDB variables, and PSI_HOME path
-  source .env
-  echo $PSI_HOME # Verify the path is correctly set
-```
-
-2. **Download Pre-trained Weights:** Pull the Psi-0 checkpoints for the SIMPLE benchmark from our Hugging Face repository. Psi0's pre-trained weights for the SIMPLE benchmark are hosted on the Hugging Face Model Hub at [USC-PSI-Lab/psi-model](https://huggingface.co/USC-PSI-Lab/psi-model).
-
-```bash
-hf download USC-PSI-Lab/psi-model \
-  --include="psi0/simple-checkpoints/*" \
-  --local-dir=$PSI_HOME/.runs \
-  --repo-type=model
-
-```
-
-### Step 2: Start the Psi-0 Inference Server
-
-Before launching the simulation, initialize the model inference server.
-
-```bash
-# Set your target run directory and checkpoint step
-export RUN_DIR=xxxx
-export CKPT_STEP=40000
-
-# Start the server (Listens on port 22085 by default)
-bash scripts/deploy/serve_psi0_simple.sh $RUN_DIR $CKPT_STEP
-
-```
-
-> ⚠️ **Important:** Keep this terminal window open. The server must remain active for the duration of the evaluation.
-
-### Step 3: Run the SIMPLE Simulation Client
-
-Open a **new terminal window** to launch the environment. The execution parameters differ slightly based on the data source of the task:
-
-* **For Teleop Tasks (suffix `*Teleop-v0`):** Use decoupled Whole-Body Control.
-* `export entry=eval_decoupled_wbc`
-* `export agent=psi0_decoupled_wbc`
-
-
-* **For Motion Planning Tasks (suffix `*MP-v0`):** Use standard evaluation.
-* `export entry=eval`
-* `export agent=psi0`
-
-
-
-**Execution Example (Teleop Task):**
-
-
-#### Option A: UV Environment
-
-```bash
-export task=G1WholebodyXMovePickTeleop-v0
-export agent=psi0_decoupled_wbc
-export dr=level-0
-
-TASK_NAME=$task uv run eval-decoupled-wbc \
-    simple/$task \
-    $agent \
-    train \
-    --data-format lerobot \
-    --data-dir data/evals/simple-eval/$task/$dr \
-    --host 127.0.0.1 \
-    --port 21000 \
-    --headless
-```
-
-#### Option B: Nix Environment
-
-```bash
-export task=G1WholebodyXMovePickTeleop-v0
-export entry=eval_decoupled_wbc
-export agent=psi0_decoupled_wbc
-export dr=level-0
-
-env -u LD_LIBRARY_PATH nix --extra-experimental-features 'nix-command flakes' develop -c \
-  python -m simple.cli.$entry \
-  simple/$task \
-  $agent \
+cd /cpfs_infra/shared/fangbaozhong/Pi05-Simple-Client
+
+export MUJOCO_GL=egl
+export PYTHONFAULTHANDLER=1
+export TASK=G1WholebodyHandoverTeleop-v0
+
+SIMPLE_PI05_TIMING_LOG=data/evals_decoupled_wbc/pi05_baseline_pytorch_timing.jsonl \
+SIMPLE_PI05_ACTION_LOG=data/evals_decoupled_wbc/pi05_baseline_pytorch_actions.jsonl \
+./.venv/bin/eval-decoupled-wbc \
+  simple/$TASK \
+  pi05_decoupled_wbc \
   train \
   --data-format lerobot \
-  --data-dir data/evals/simple-eval/$task/$dr \
+  --data-dir data/evals/simple-eval/$TASK/level-0 \
   --host 127.0.0.1 \
-  --port 21000 \
-  --headless
+  --port 22085 \
+  --sim-mode mujoco \
+  --headless \
+  --num-episodes 5 \
+  --save-video
 ```
 
-### Step 4: View Evaluation Results & Videos
+这一组结果作为普通 pi0.5 baseline，主要记录成功率、episode 时间和请求耗时。
 
-**Task Success Rate Statistics:**
-Upon completion, the terminal will display a summary of the results. A detailed log is also preserved automatically:
+## 跑 Triton full baseline eval
+
+先在 server 仓库启动 Triton full route：
 
 ```bash
-cat data/evals_decoupled_wbc/eval_stats.txt
+cd /cpfs_infra/shared/fangbaozhong/Flash-Pi05-Simple-Server
 
+export MUJOCO_GL=egl
+export PYTHONFAULTHANDLER=1
+
+uv run --no-sync scripts/spec/spec_serve_policy.py \
+  --port 22085 \
+  --config pi05_simple_g1_handover_teleop \
+  --backend triton \
+  --base-only \
+  --simple-dataset-root /cpfs_infra/shared/fangbaozhong/simple-data/simple/G1WholebodyHandoverTeleop-v0 \
+  --base-triton-path data/triton/pi05_simple_g1_handover_teleop_base/base_weights.pkl \
+  --num-views 2
 ```
 
-**Execution Videos:**
-Visual records of each episode are automatically rendered and saved. The files are named using the pattern `episode_id/cam_name_{success_flag}.mp4` (e.g., `success` or `failed`).
+客户端 eval 命令保持一致，只换 log 文件名：
 
 ```bash
-# Example: Play a successful teleop evaluation video
-mpv data/evals_decoupled_wbc/psi0_decoupled_wbc/G1WholebodyXMovePickTeleop-v0/level-0/episode_0/head_stereo_left_success.mp4
+cd /cpfs_infra/shared/fangbaozhong/Pi05-Simple-Client
 
-# Example: Play a successful motion planning evaluation video
-mpv data/evals/psi0/G1WholebodyBendPickMP-v0/level-0/episode_0/front_stereo_left_success.mp4
+export MUJOCO_GL=egl
+export PYTHONFAULTHANDLER=1
+export TASK=G1WholebodyHandoverTeleop-v0
 
+SIMPLE_PI05_TIMING_LOG=data/evals_decoupled_wbc/pi05_baseline_triton_timing.jsonl \
+SIMPLE_PI05_ACTION_LOG=data/evals_decoupled_wbc/pi05_baseline_triton_actions.jsonl \
+./.venv/bin/eval-decoupled-wbc \
+  simple/$TASK \
+  pi05_decoupled_wbc \
+  train \
+  --data-format lerobot \
+  --data-dir data/evals/simple-eval/$TASK/level-0 \
+  --host 127.0.0.1 \
+  --port 22085 \
+  --sim-mode mujoco \
+  --headless \
+  --num-episodes 5 \
+  --save-video
 ```
 
+## 跑 Triton + draft eval
 
+先在 server 仓库启动 Triton + draft route：
 
+```bash
+cd /cpfs_infra/shared/fangbaozhong/Flash-Pi05-Simple-Server
 
-## 📊 Simulation Benchmarking Results
+export MUJOCO_GL=egl
+export PYTHONFAULTHANDLER=1
 
-> This is a preliminary benchmark with 6 tasks accompanying the [Psi-0](https://github.com/physical-superintelligence-lab/Psi0) project. Please also checkout Psi-0 for more details of intergrating Psi-0 with SIMPLE.
-
-To rigorously evaluate the robustness and generalization of the learned policies, we design three evaluation levels with progressive out-of-distribution variations applied to the training environment:
-
-> The evaluation environments are provided in the huggingface repository [USC-PSI-Lab/psi-data](https://huggingface.co/datasets/USC-PSI-Lab/psi-data/tree/main/simple-eval).
-
-* **Level 0 (Visual & Distractors):** Randomizes table materials and the types/initial positions of distractor objects.
-* **Level 1 (Lighting):** Includes Level 0 variations + extreme changes in lighting conditions.
-* **Level 2 (Spatial pose):** Includes Level 1 variations + perturbations to the initial positions of the target objects.
-
-_Success rates are reported out of 10 evaluation trials per level (**Level 0 | Level 1 | Level 2**)._
-| Baseline / Task | G1Wholebody<br>XMove<br>PickTeleop-v0 | G1Wholebody<br>BendPickMP-v0 | G1Wholebody<br>Handover<br>Teleop-v0 | G1Wholebody<br>Locomotion<br>PickBetweenTables<br>Teleop-v0 | G1Wholebody<br>Tabletop<br>GraspMP-v0 | G1Wholebody<br>XMove<br>BendPick<br>Teleop-v0 |
-| :--------------- | :-----------------------------------: | :--------------------------: | :----------------------------------: | :---------------------------------------------------------: | :-----------------------------------: | :-------------------------------------------: |
-| **Psi0** | 10 &#124; 10 &#124; 6 | 10 &#124; 10 &#124; 10 | 7 &#124; 7 &#124; 10 | 7 &#124; 5 &#124; 6 | 10 &#124; 10 &#124; 8 | 10 &#124; 9 &#124; 9 |
-| **GR00T N1.6** | 10 &#124; 10 &#124; 7 | 7 &#124; 7 &#124; 6 | 1 &#124; 3 &#124; 3 | 0 &#124; 0 &#124; 0 | 9 &#124; 9 &#124; 7 | 4 &#124; 4 &#124; 1 |
-| **OpenPi π0.5** | 7 &#124; 5 &#124; 1 | 10 &#124; 10 &#124; 8 | 5 &#124; 4 &#124; 5 | 3 &#124; 3 &#124; 3 | 10 &#124; 10 &#124; 8 | 0 &#124; 0 &#124; 0 |
-| **InternVLA-M1** | 0 &#124; 0 &#124; 0 | 5 &#124; 5 &#124; 0 | 0 &#124; 0 &#124; 0 | 0 &#124; 0 &#124; 0 | 0 &#124; 0 &#124; 0 | 3 &#124; 5 &#124; 7 |
-| **H-RDT** | 0 &#124; 0 &#124; 2 | 0 &#124; 0 &#124; 1 | 0 &#124; 1 &#124; 0 | 0 &#124; 0 &#124; 0 | 0 &#124; 0 &#124; 0 | 0 &#124; 0 &#124; 0 |
-| **DreamZero** | 10 &#124; 10 &#124; 10 | 9 &#124; 9 &#124; 8 | 7 &#124; 8 &#124; 9 | 5 &#124; 3 &#124; 3 | 9 &#124; 10 &#124; 7 | 0 &#124; 0 &#124; 1 |
-| **EgoVLA** | 0 &#124; 1 &#124; 2 | 7 &#124; 5 &#124; 8 | 0 &#124; 4 &#124; 3 | 0 &#124; 0 &#124; 0 | 10 &#124; 10 &#124; 7 | 3 &#124; 5 &#124; 4 |
-| **Diff. Policy** | 3 &#124; 3 &#124; 2 | 10 &#124; 8 &#124; 6 | 3 &#124; 2 &#124; 4 | 4 &#124; 0 &#124; 0 | 8 &#124; 9 &#124; 8 | 0 &#124; 0 &#124; 0 |
-| **ACT** | 10 &#124; 9 &#124; 6 | 10 &#124; 9 &#124; 9 | 4 &#124; 4 &#124; 6 | 6 &#124; 5 &#124; 7 | 10 &#124; 10 &#124; 8 | 6 &#124; 8 &#124; 8 |
-
-_More interesting tasks, including articulated objects._
-
-| Baseline / Task | G1Wholebody<br>CloseDoor<br>Teleop-v0 | G1Wholebody<br>OpenOven<br>Teleop-v0 | G1Wholebody<br>OpenFaucet<br>Teleop-v0 | G1Wholebody<br>PickAndPlace<br>AndHugContainer<br>Teleop-v0 | 
-| :--------------- | :-----------------------------------: | :--------------------------: | :----------------------------------: | :---------------------------------------------------------: | 
-| **Psi0** | 10 &#124; 10 &#124; 10 | 7 &#124; 5 &#124; 4 | 3 &#124; 3 &#124; 4 | 7 &#124; 6 &#124; 3 | 
-
-## Citation
-
-> Please also consider citing `Psi-0` if you use its training code.
-
-```
-@article{wei2026simple,
-  title={SIMPLE: Simulation-Based Policy Learning and Evaluation for Humanoid Loco-manipulation},
-  author={Wei, Songlin and Ni, Zhenhao and Liu, Jie and Zhao, Zhenyu and Ye, Junjie and Jing, Hongyi and Xia, Junkai and Liu, Xiawei and Leong, Michael and Heng, Liang and Huang, Di and Wang, Yue},
-  journal={arXiv preprint arXiv:2606.08278},
-  year={2026}
-}
+SPEC_TRITON_ONLINE_PROMPT_EMBED=1 \
+SPEC_TRITON_SIMPLE_STABILITY_GUARD=1 \
+SPEC_DEBUG_DRAFT_ALIGN=1 \
+uv run --no-sync scripts/spec/spec_serve_policy.py \
+  --port 22085 \
+  --config pi05_simple_g1_handover_teleop \
+  --simple-dataset-root /cpfs_infra/shared/fangbaozhong/simple-data/simple/G1WholebodyHandoverTeleop-v0 \
+  --base-triton-path data/triton/pi05_simple_g1_handover_teleop_base \
+  --draft-triton-path data/triton/pi05_simple_g1_handover_teleop_flash/draft_triton.pkl \
+  --backend triton \
+  --tau-radius 0.25 \
+  --t-list 0.1 0.05 \
+  --dist-dims 28 \
+  --max-exec-steps 12 \
+  --periodic-full-every-n-draft-rounds 2 \
+  --no-enable-gripper-verify \
+  --no-enable-gripper-post-verify
 ```
 
+然后在本仓库运行 draft eval。draft 实验建议显式设置 `SIMPLE_PI05_REPLAN_STEPS=20`，server 返回的 `accepted_prefix_len` 仍然会限制实际执行长度。
+
+```bash
+cd /cpfs_infra/shared/fangbaozhong/Pi05-Simple-Client
+
+export MUJOCO_GL=egl
+export PYTHONFAULTHANDLER=1
+export TASK=G1WholebodyHandoverTeleop-v0
+
+SIMPLE_PI05_REPLAN_STEPS=20 \
+SIMPLE_PI05_USE_ACCEPTED_PREFIX=1 \
+SIMPLE_PI05_TIMING_LOG=data/evals_decoupled_wbc/pi05_flash_draft_handover_timing.jsonl \
+SIMPLE_PI05_ACTION_LOG=data/evals_decoupled_wbc/pi05_flash_draft_handover_actions.jsonl \
+./.venv/bin/eval-decoupled-wbc \
+  simple/$TASK \
+  pi05_decoupled_wbc \
+  train \
+  --data-format lerobot \
+  --data-dir data/evals/simple-eval/$TASK/level-0 \
+  --host 127.0.0.1 \
+  --port 22085 \
+  --sim-mode mujoco \
+  --headless \
+  --num-episodes 10 \
+  --save-video
 ```
-@article{wei2026psi0,
-  title={{$\Psi_0$}: An Open Foundation Model Towards Universal Humanoid Loco-Manipulation},
-  author={Wei, Songlin and Jing, Hongyi and Li, Boqian and Zhao, Zhenyu and Mao, Jiageng and Ni, Zhenhao and He, Sicheng and Liu, Jie and Liu, Xiawei and Kang, Kaidi and others},
-  journal={arXiv preprint arXiv:2603.12263},
-  year={2026}
-}
+
+调试时可以先把 `--num-episodes 10` 改成 `2`。
+
+## 客户端环境变量
+
+pi0.5 客户端常用环境变量：
+
+```bash
+SIMPLE_PI05_REPLAN_STEPS=20
+SIMPLE_PI05_USE_ACCEPTED_PREFIX=1
+SIMPLE_PI05_FULL_EXEC_STEPS=0
+SIMPLE_PI05_TIMING_LOG=data/evals_decoupled_wbc/pi05_timing.jsonl
+SIMPLE_PI05_ACTION_LOG=data/evals_decoupled_wbc/pi05_executed_actions.jsonl
 ```
 
-## License
+含义：
 
-This project is licensed under the MIT.
+- `SIMPLE_PI05_REPLAN_STEPS`：客户端每轮最多执行多少个动作。
+- `SIMPLE_PI05_USE_ACCEPTED_PREFIX`：是否使用 server 返回的 `accepted_prefix_len`。默认 `1`，调试时可设为 `0`。
+- `SIMPLE_PI05_FULL_EXEC_STEPS`：full route 的执行长度覆盖值。默认 `0` 表示仍按 replan/accepted prefix 逻辑。
+- `SIMPLE_PI05_TIMING_LOG`：每次 server 请求的耗时 jsonl。
+- `SIMPLE_PI05_ACTION_LOG`：每个实际执行动作的 jsonl。
 
-See the [LICENSE](https://www.google.com/search?q=license.md) file for details.
+通用仿真变量：
 
+```bash
+MUJOCO_GL=egl
+PYTHONFAULTHANDLER=1
+```
+
+## 日志文件
+
+`SIMPLE_PI05_TIMING_LOG` 每行是一条 server 请求记录，常用字段包括：
+
+- `episode_idx`
+- `global_step_idx`
+- `server_query_idx`
+- `client_roundtrip_ms`
+- `policy_time_ms`
+- `accepted_prefix_len`
+- `exec_len`
+- `replan_steps`
+- `policy_timing.route_type`
+- `policy_timing.total_ms`
+- `server_timing`
+
+`SIMPLE_PI05_ACTION_LOG` 每行是一条实际执行动作记录，常用字段包括：
+
+- `episode_idx`
+- `global_step_idx`
+- `server_query_idx`
+- `chunk_action_idx`
+- `route_type`
+- `accepted_prefix_len`
+- `exec_len`
+- `upper_0_28`
+- `waist_28_31`
+- `base_height_31`
+- `nav_32_36`
+
+## 快速统计 timing log
+
+把下面的 `LOG` 改成你的 timing jsonl，然后直接运行整段命令：
+
+```bash
+LOG=data/evals_decoupled_wbc/pi05_flash_draft_handover_timing.jsonl \
+./.venv/bin/python - <<'PY'
+import json
+import os
+from statistics import mean
+
+path = os.environ["LOG"]
+records = []
+with open(path, "r", encoding="utf-8") as f:
+    for line in f:
+        line = line.strip()
+        if line:
+            records.append(json.loads(line))
+
+def number(x):
+    return x if isinstance(x, (int, float)) else None
+
+def route(rec):
+    pt = rec.get("policy_timing") or {}
+    rt = pt.get("route_type")
+    if rt:
+        return rt
+    if number(pt.get("used_full_fallback")) and pt["used_full_fallback"] >= 0.5:
+        return "full"
+    return "draft"
+
+print("queries:", len(records))
+for name in ["full", "draft"]:
+    subset = [r for r in records if route(r) == name]
+    if not subset:
+        continue
+    total_ms = [
+        number((r.get("policy_timing") or {}).get("total_ms"))
+        for r in subset
+    ]
+    total_ms = [x for x in total_ms if x is not None]
+    accepted = [number(r.get("accepted_prefix_len")) for r in subset]
+    accepted = [x for x in accepted if x is not None]
+    exec_len = [number(r.get("exec_len")) for r in subset]
+    exec_len = [x for x in exec_len if x is not None]
+    print(f"{name}.queries:", len(subset))
+    if total_ms:
+        print(f"{name}.policy_total_ms_mean:", round(mean(total_ms), 3))
+    if accepted:
+        print(f"{name}.accepted_mean:", round(mean(accepted), 3))
+        print(f"{name}.accepted_gt0_ratio:", round(sum(x > 0 for x in accepted) / len(accepted), 3))
+    if exec_len:
+        print(f"{name}.exec_steps:", int(sum(exec_len)))
+PY
+```
+
+也可以直接把脚本保存成临时分析脚本后运行。
+
+## 推荐结果表
+
+建议每次实验记录下面这些指标：
+
+```text
+Task: G1WholebodyHandoverTeleop-v0
+Episodes: 10
+Policy: pi05_decoupled_wbc
+Server: pytorch baseline / triton full / triton draft
+Client replan steps: 20
+
+query 数:
+policy_timing.total_ms mean:
+client_roundtrip_ms mean:
+draft 平均接受长度:
+draft accepted>0 比例:
+draft 完整接受 20 steps 比例:
+draft 执行动作步数占比:
+任务成功率:
+平均 episode 时间:
+```
+
+你之前的 draft route 记录可以写成：
+
+```text
+Full route queries: 198
+Draft route queries: 193
+Full route policy_timing.total_ms: 136.7 ms
+Draft route policy_timing.total_ms: 31.3 ms
+Typical speedup: 4.4x
+Draft mean accepted prefix: 8.38 / 20 steps
+Draft accepted>0 ratio: 71.0%
+Draft full accepted 20-step ratio: 18.7%
+Draft executed action ratio: 1617 / 5577 = 29.0%
+Success rate: 8 / 10 = 80%
+```
+
+## 常见问题
+
+### `eval-decoupled-wbc` 找不到
+
+确认 `.venv` 已经创建，并且 console script 存在：
+
+```bash
+ls ./.venv/bin/eval-decoupled-wbc
+```
+
+如果不存在，重新安装：
+
+```bash
+GIT_LFS_SKIP_SMUDGE=1 UV_HTTP_TIMEOUT=3000 \
+uv sync --all-groups --index-strategy unsafe-best-match
+```
+
+### submodule 拉取失败
+
+先把 SSH URL 改成 https URL，再重新拉：
+
+```bash
+git config submodule.third_party/openpi-client.url https://github.com/songlin/openpi-client.git
+git submodule update --init --recursive third_party/openpi-client
+```
+
+其他 submodule 同理。
+
+### headless 渲染失败
+
+确认：
+
+```bash
+export MUJOCO_GL=egl
+```
+
+如果仍失败，先用 `--headless` 和 `--sim-mode mujoco` 跑最小 episode。
+
+### 连接不上 server
+
+确认 server 正在监听：
+
+```bash
+curl http://127.0.0.1:22085/healthz
+```
+
+如果 server 跑在另一台机器，把客户端命令里的：
+
+```bash
+--host 127.0.0.1
+--port 22085
+```
+
+改成对应 IP 和端口。
+
+### draft route 执行步数很少
+
+先看 timing log 中的：
+
+```text
+accepted_prefix_len
+policy_timing.radius_dist
+policy_timing.route_type
+```
+
+如果接受长度偏低，可以在 server 侧尝试：
+
+```bash
+--tau-radius 0.3
+--periodic-full-every-n-draft-rounds 1
+```
+
+如果 base/nav 抖动明显，确保 server 侧打开：
+
+```bash
+SPEC_TRITON_SIMPLE_STABILITY_GUARD=1
+```
+
+## 上游项目
+
+本仓库基于 SIMPLE：
+
+```text
+SIMPLE: SIMulation-based Policy Learning and Evaluation
+```
+
+上游项目：
+
+- SIMPLE: <https://github.com/physical-superintelligence-lab/SIMPLE>
+- OpenPI: <https://github.com/Physical-Intelligence/openpi>
+- Realtime-VLA FLASH: <https://dexmal.github.io/realtime-vla-flash/>
