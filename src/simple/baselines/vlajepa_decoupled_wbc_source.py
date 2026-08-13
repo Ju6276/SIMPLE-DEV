@@ -1,0 +1,396 @@
+"""
+SIMPLE: SIMulation-based Policy Learning and Evaluation
+
+VLA-JEPA adapter for G1 decoupled-WBC evaluation.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import time
+
+import numpy as np
+
+from simple.agents.sonic_decoupled_wbc_agent import SonicDecoupledWbcAgent
+from simple.core.action import ActionCmd
+from simple.robots.g1_wholebody import (
+    LEFT_ARM_JOINTS,
+    LEFT_HAND_JOINTS,
+    RIGHT_ARM_JOINTS,
+    RIGHT_HAND_JOINTS,
+)
+
+from .vlajepa_ws_client_source import VlajepaWebsocketClient
+
+
+DEFAULT_VLAJEPA_INSTRUCTION = "Complete the robot task shown in the scene."
+
+
+def _resolve_instruction(instruction: str | None) -> str:
+    override = os.environ.get("VLAJEPA_INSTRUCTION_OVERRIDE")
+    if override:
+        return override
+    if instruction:
+        normalized = " ".join(instruction.split())
+        if normalized:
+            return normalized
+    return DEFAULT_VLAJEPA_INSTRUCTION
+
+
+def _build_vlajepa_state(joint_qpos: np.ndarray, height: float) -> np.ndarray:
+    left_hand = joint_qpos[29:36]
+    right_hand = joint_qpos[36:43]
+    left_arm = joint_qpos[15:22]
+    right_arm = joint_qpos[22:29]
+    torso_rpy = joint_qpos[[13, 14, 12]]
+    return np.concatenate(
+        [
+            left_hand,
+            right_hand,
+            left_arm,
+            right_arm,
+            torso_rpy,
+            np.array([height], dtype=np.float32),
+        ],
+        axis=0,
+    ).astype(np.float32)
+
+
+def _action_to_upper_body_pose(action: np.ndarray) -> dict[str, float]:
+    target_upper_body_pose: dict[str, float] = {}
+    target_upper_body_pose.update(zip(LEFT_HAND_JOINTS, action[0:7], strict=True))
+    target_upper_body_pose.update(zip(RIGHT_HAND_JOINTS, action[7:14], strict=True))
+    target_upper_body_pose.update(zip(LEFT_ARM_JOINTS, action[14:21], strict=True))
+    target_upper_body_pose.update(zip(RIGHT_ARM_JOINTS, action[21:28], strict=True))
+    target_upper_body_pose["waist_roll_joint"] = float(action[28])
+    target_upper_body_pose["waist_pitch_joint"] = float(action[29])
+    target_upper_body_pose["waist_yaw_joint"] = float(action[30])
+    return target_upper_body_pose
+
+
+def _segment_l1_summary(action: np.ndarray, state_32d: np.ndarray) -> dict[str, float]:
+    deltas = action[:32] - state_32d
+    return {
+        "left_hand": float(np.mean(np.abs(deltas[0:7]))),
+        "right_hand": float(np.mean(np.abs(deltas[7:14]))),
+        "left_arm": float(np.mean(np.abs(deltas[14:21]))),
+        "right_arm": float(np.mean(np.abs(deltas[21:28]))),
+        "torso_rpyh": float(np.mean(np.abs(deltas[28:32]))),
+    }
+
+
+def _should_log_debug(step_idx: int) -> bool:
+    return step_idx < 21 or (step_idx > 0 and step_idx % 70 == 0)
+
+
+def _jsonable(value):
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
+def _float_or_none(value):
+    if isinstance(value, (int, float, np.generic)):
+        return float(value)
+    return None
+
+
+def _finite_float_or_none(value):
+    value = _float_or_none(value)
+    if value is None or not np.isfinite(value):
+        return None
+    return float(value)
+
+
+def _round_float_or_none(value, ndigits: int = 3):
+    value = _finite_float_or_none(value)
+    if value is None:
+        return None
+    return round(value, ndigits)
+
+
+def _first_finite_float(*values):
+    for value in values:
+        value = _finite_float_or_none(value)
+        if value is not None:
+            return value
+    return None
+
+
+def _int_or_none(value):
+    if isinstance(value, (int, float, np.generic)):
+        return int(round(float(value)))
+    return None
+
+
+class VlajepaDecoupledWbcSourceAgent(SonicDecoupledWbcAgent):
+    def __init__(self, robot, host: str, port: int, upsample_factor: int = 1, **kwargs):
+        super().__init__(robot, **kwargs)
+
+        self.server_ip = host
+        self.server_port = port
+        self.upsample_factor = upsample_factor
+
+        self.client = VlajepaWebsocketClient(host=host, port=port)
+        self._experiment_name = os.environ.get("SIMPLE_JEPA_EXPERIMENT", "baseline_source")
+        self._global_step_idx = 0
+        self._server_query_idx = 0
+        self._episode_idx = -1
+        self._last_base_height_command = 0.74
+        self._reset_history = True
+        self._timing_log_path = Path(
+            os.environ.get(
+                "SIMPLE_JEPA_SOURCE_TIMING_LOG",
+                os.environ.get(
+                    "SIMPLE_JEPA_BASELINE_TIMING_LOG",
+                    "data/evals_decoupled_wbc/vlajepa_source_timing.jsonl",
+                ),
+            )
+        )
+        self._timing_log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._timing_verbose = os.environ.get("SIMPLE_JEPA_TIMING_VERBOSE", "0") == "1"
+        self._timing_warmup_queries = max(0, int(os.environ.get("SIMPLE_JEPA_TIMING_WARMUP_QUERIES", "1")))
+        self._timing_round_count = 0
+        self._timing_latency_sum_ms = 0.0
+        self._timing_exec_sum = 0
+
+        indices = self._dwbc_robot_model.get_joint_group_indices("upper_body")
+        self.sonic_upper_joint_names = [
+            name
+            for name, idx in self._dwbc_robot_model.joint_to_dof_index.items()
+            if idx in indices
+        ]
+
+    def _record_timing(self, response, *, client_roundtrip_ms, reset, exec_len=None):
+        server_timing = response.get("server_timing", {})
+        if not isinstance(server_timing, dict):
+            server_timing = {}
+        policy_timing = response.get("policy_timing", {})
+        if not isinstance(policy_timing, dict):
+            policy_timing = {}
+
+        policy_time_ms = _first_finite_float(server_timing.get("policy_time_ms"), server_timing.get("infer_ms"))
+        latency_ms = _first_finite_float(
+            policy_timing.get("sample_actions_ms"),
+            policy_timing.get("total_ms"),
+            policy_time_ms,
+            client_roundtrip_ms,
+        )
+        executed = _int_or_none(exec_len)
+        include_in_summary = self._server_query_idx >= self._timing_warmup_queries
+
+        if include_in_summary:
+            self._timing_round_count += 1
+            if latency_ms is not None:
+                self._timing_latency_sum_ms += latency_ms
+            if executed is not None:
+                self._timing_exec_sum += max(0, executed)
+
+        avg_latency_ms = None
+        avg_ms_per_action = None
+        if self._timing_round_count > 0:
+            avg_latency_ms = self._timing_latency_sum_ms / float(self._timing_round_count)
+        if self._timing_exec_sum > 0:
+            avg_ms_per_action = self._timing_latency_sum_ms / float(self._timing_exec_sum)
+
+        record = {
+            "exp": self._experiment_name,
+            "t": _round_float_or_none(time.time(), 3),
+            "ep": int(self._episode_idx),
+            "step": int(self._global_step_idx),
+            "q": int(self._server_query_idx),
+            "reset": bool(reset),
+            "measured": int(include_in_summary),
+            "route": "baseline_full",
+            "exec": executed,
+            "accepted": executed,
+            "replan": executed,
+            "accept_ratio": 1.0 if executed is not None and executed > 0 else None,
+            "flash_accept_ratio": None,
+            "lat_ms": _round_float_or_none(latency_ms),
+            "rt_ms": _round_float_or_none(client_roundtrip_ms),
+            "ms_per_action": (
+                round(latency_ms / float(executed), 3)
+                if latency_ms is not None and executed is not None and executed > 0
+                else None
+            ),
+            "full_baseline_ms": _round_float_or_none(latency_ms),
+            "speedup": 1.0 if latency_ms is not None and latency_ms > 0.0 else None,
+            "saved_ms": 0.0 if latency_ms is not None else None,
+            "enc_ms": _round_float_or_none(policy_timing.get("encoder_ms")),
+            "prefill_ms": _round_float_or_none(policy_timing.get("vlm_prefill_ms")),
+            "draft_ms": 0.0 if latency_ms is not None else None,
+            "verify_ms": 0.0 if latency_ms is not None else None,
+            "denoise_ms": _round_float_or_none(policy_timing.get("full_fallback_ms")),
+            "dist": None,
+            "prefix_visual_compiled": 0,
+            "verify_compiled": 0,
+            "shared_prefix_full": 0,
+            "full": 1,
+            "flash": 0,
+            "fallback": 0,
+            "sched_full": 0,
+            "flash_rate": 0.0 if include_in_summary else None,
+            "full_rate": 1.0 if include_in_summary else None,
+            "fallback_rate": 0.0 if include_in_summary else None,
+            "avg_lat_ms": _round_float_or_none(avg_latency_ms),
+            "avg_ms_per_action": _round_float_or_none(avg_ms_per_action),
+            "avg_speedup": 1.0 if avg_latency_ms is not None and avg_latency_ms > 0.0 else None,
+            "flash_avg_lat_ms": None,
+            "flash_avg_ms_per_action": None,
+            "cum_accept_ratio": 1.0 if include_in_summary and self._timing_round_count > 0 else None,
+            "cum_flash_accept_ratio": None,
+        }
+        if self._timing_verbose:
+            data = response.get("data", {})
+            actions = data.get("actions") if isinstance(data, dict) else None
+            record.update(
+                {
+                    "host": self.server_ip,
+                    "port": self.server_port,
+                    "action_shape": list(actions.shape) if hasattr(actions, "shape") else None,
+                    "server_timing": _jsonable(server_timing),
+                    "policy_timing": _jsonable(policy_timing),
+                }
+            )
+        with self._timing_log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, sort_keys=True, allow_nan=False) + "\n")
+
+    def get_action(
+        self,
+        observation,
+        instruction=None,
+        info=None,
+        conditions=None,
+        **kwargs,
+    ):
+        self._last_observation = observation
+        self._last_qpos = observation["joint_qpos"]
+
+        if len(self._action_queue) == 0:
+            state_32d = _build_vlajepa_state(
+                observation["joint_qpos"],
+                height=self._last_base_height_command,
+            )
+            payload = {
+                "batch_images": [[observation["head_stereo_left"]]],
+                "instructions": [_resolve_instruction(instruction)],
+                "state": state_32d[None, None, :],
+                "reset": self._reset_history,
+            }
+            self._reset_history = False
+
+            infer_start = time.perf_counter()
+            response = self.client.infer(payload)
+            client_roundtrip_ms = (time.perf_counter() - infer_start) * 1000.0
+            if not response.get("ok", False):
+                raise RuntimeError(f"VLA-JEPA server inference failed: {response}")
+
+            pred_action = response["data"]["actions"]
+            self._record_timing(
+                response,
+                client_roundtrip_ms=client_roundtrip_ms,
+                reset=payload["reset"],
+                exec_len=pred_action.shape[0],
+            )
+            self._server_query_idx += 1
+            print(
+                f"step {self._global_step_idx}: Received {pred_action.shape[0]} actions from VLA-JEPA server."
+            )
+            if _should_log_debug(self._global_step_idx) and pred_action.shape[0] > 0:
+                first_action = pred_action[0]
+                delta_summary = _segment_l1_summary(first_action, state_32d)
+                print(
+                    "[VLAJEPADebug] "
+                    f"step={self._global_step_idx} "
+                    f"instruction={payload['instructions'][0]!r} "
+                    f"state_rpyh={np.round(state_32d[28:32], 4).tolist()} "
+                    f"action_rpyh_nav={np.round(first_action[28:36], 4).tolist()}"
+                )
+                print(
+                    "[VLAJEPADebugUpper] "
+                    f"step={self._global_step_idx} "
+                    f"delta_l1={{{', '.join(f'{k}: {v:.4f}' for k, v in delta_summary.items())}}} "
+                    f"state_l_hand={np.round(state_32d[0:7], 4).tolist()} "
+                    f"pred_l_hand={np.round(first_action[0:7], 4).tolist()} "
+                    f"state_r_hand={np.round(state_32d[7:14], 4).tolist()} "
+                    f"pred_r_hand={np.round(first_action[7:14], 4).tolist()} "
+                    f"state_l_arm={np.round(state_32d[14:21], 4).tolist()} "
+                    f"pred_l_arm={np.round(first_action[14:21], 4).tolist()} "
+                    f"state_r_arm={np.round(state_32d[21:28], 4).tolist()} "
+                    f"pred_r_arm={np.round(first_action[21:28], 4).tolist()}"
+                )
+
+            for action in pred_action:
+                navigate_cmd = action[32:36].astype(np.float32)
+                for _ in range(self.upsample_factor):
+                    self.queue_action(
+                        ActionCmd(
+                            "vla_cmd",
+                            target_upper_body_pose=_action_to_upper_body_pose(action),
+                            navigate_cmd=navigate_cmd,
+                            base_height_command=action[31:32].astype(np.float32),
+                        )
+                    )
+
+        action_cmd = super().get_action(observation, instruction, **kwargs)
+        if action_cmd.type != "vla_cmd":
+            raise ValueError(f"Unexpected action type {action_cmd.type} from queue.")
+
+        proprio = self.robot.prepare_obs()
+        wbc_obs = self._build_wbc_observation(proprio)
+        self._wbc_policy.set_observation(wbc_obs)
+        t_now = time.monotonic()
+        control_freq = self._control_frequency
+        target_time = t_now + 1 / control_freq
+
+        target_upper_body_pose = np.array(
+            [action_cmd["target_upper_body_pose"][name] for name in self.sonic_upper_joint_names],
+            dtype=np.float32,
+        )
+        goal = {
+            "target_upper_body_pose": target_upper_body_pose,
+            "navigate_cmd": action_cmd["navigate_cmd"],
+            "base_height_command": action_cmd["base_height_command"],
+            "target_time": target_time,
+            "interpolation_garbage_collection_time": t_now - 2 / control_freq,
+            "timestamp": t_now,
+        }
+        self._wbc_policy.set_goal(goal)
+        wbc_action = self._wbc_policy.get_action(time=t_now)
+        self._cached_target_q = self._dwbc_robot_model.get_body_actuated_joints(wbc_action["q"])
+        self._cached_left_hand_q = self._dwbc_robot_model.get_hand_actuated_joints(
+            wbc_action["q"], side="left"
+        )
+        self._cached_right_hand_q = self._dwbc_robot_model.get_hand_actuated_joints(
+            wbc_action["q"], side="right"
+        )
+
+        self._last_base_height_command = float(goal["base_height_command"][0])
+        self._last_pred_action = ActionCmd(
+            "decoupled_wbc",
+            target_q=self._cached_target_q,
+            left_hand_q=self._cached_left_hand_q,
+            right_hand_q=self._cached_right_hand_q,
+        )
+        self._global_step_idx += 1
+        return self._last_pred_action
+
+    def reset(self, **kwargs):
+        super().reset(**kwargs)
+        self._episode_idx += 1
+        self._global_step_idx = 0
+        self._server_query_idx = 0
+        self._last_qpos = None
+        self._last_observation = None
+        self._last_pred_action = None
+        self._last_base_height_command = 0.74
+        self._reset_history = True

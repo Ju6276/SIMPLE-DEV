@@ -1,0 +1,92 @@
+# -----------------------
+# Python cache & build artifacts
+# -----------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Python-generated files
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# -----------------------
+# Environment & secrets
+# -----------------------
+.venv/
+.venv-nix/
+.env
+.env.*
+!.env.example
+*.secret
+*.key
+
+# -----------------------
+# Test & coverage outputs
+# -----------------------
+.coverage
+coverage.xml
+htmlcov/
+pytest_cache/
+
+# -----------------------
+# OS junk files
+# -----------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------
+# NVIDIA / Isaac Sim heavy caches
+# (Uncomment if using Isaac Sim / Omniverse to avoid bloating repo)
+# ~/.cache/ov/
+# ~/.nvidia-omniverse/
+# ~/.local/share/ov/
+*.etli
+
+# -----------------------
+# data settings
+# -----------------------
+data/*
+!data/README.md
+!data/_download.py
+!.env.sample
+results/
+artifacts/
+videos/
+cache/
+
+# Sphinx build artifacts
+docs/build/
+docs/source/api/
+
+# cuRobo build artifacts
+third_party/curobo/build/
+third_party/curobo/.eggs/
+third_party/curobo/*.egg-info/
+third_party/curobo/__pycache__/
+!third_party
+third_party/*
+!third_party/.gitkeep
+
+typings/*
+output/*
+src/simple/resources/robots/*
+src/simple_old/*
+InternVLA/*
+hfm-finetune-simple-sim/*
+hfm.pre.fast.egodex.2512241941.ckpt200k/*
+control_*_debug_ctrl_err.pkl
+.cuda-compat/
+notes.md
+playgrounds/
+.test-output/
+typings
+MUJOCO_LOG.TXT
+.claude/*
+.runtime-state/
+.robo-nix/
+=0.0.53
