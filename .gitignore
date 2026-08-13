@@ -1,0 +1,59 @@
+# Local environments
+.env
+.venv/
+venv/
+env/
+wbc/.venv_sim/
+
+# Python caches and packaging outputs
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+
+# Runtime logs and generated debug files
+*.log
+action_stats_debug.log
+MUJOCO_LOG.TXT
+nohup.out
+
+# Evaluation outputs
+data/
+heatmap/
+heatmap_debug/
+*.mp4
+*.avi
+*.mov
+
+# Large model/checkpoint/data artifacts
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.engine
+*.plan
+*.onnx
+*.npy
+*.npz
+*.parquet
+starVLA/starVLA/playground/
+
+# Generated MuJoCo scene variants
+wbc/gear_sonic/data/robot_model/model_data/g1/scene_43dof_colors_*.xml
+wbc/gear_sonic/data/robot_model/model_data/g1/scene_43dof_lighting_*.xml
+wbc/gear_sonic/data/robot_model/model_data/g1/scene_43dof_position_*.xml
+
+# Local deploy build artifacts
+wbc/gear_sonic_deploy/build/
+wbc/gear_sonic_deploy/build.*/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+.codex/
+.agents/

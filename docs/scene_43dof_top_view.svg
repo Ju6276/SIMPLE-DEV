@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#395a7f"/>
+    </marker>
+    <style>
+      .title { font: 700 28px sans-serif; fill: #1d2a38; }
+      .label { font: 500 18px sans-serif; fill: #243447; }
+      .small { font: 400 15px sans-serif; fill: #4d6278; }
+      .tiny { font: 400 13px sans-serif; fill: #6b7d90; }
+      .axis { stroke: #395a7f; stroke-width: 3; marker-end: url(#arrow); }
+      .guide { stroke: #9db3c8; stroke-width: 2; stroke-dasharray: 8 8; }
+      .callout { stroke: #5b6f82; stroke-width: 2; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="900" fill="#f5f7fa"/>
+  <text x="60" y="60" class="title">scene_43dof.xml Top View</text>
+  <text x="60" y="92" class="small">Units are meters. X points right, Y points up in this diagram.</text>
+
+  <rect x="60" y="120" width="760" height="700" rx="24" fill="#eef3f8" stroke="#d2dce6" stroke-width="2"/>
+  <rect x="860" y="120" width="280" height="700" rx="24" fill="#ffffff" stroke="#d2dce6" stroke-width="2"/>
+  <text x="890" y="165" class="label">Your Markup Area</text>
+  <text x="890" y="200" class="small">You can tell me:</text>
+  <text x="890" y="232" class="small">1. New cup center (x, y)</text>
+  <text x="890" y="264" class="small">2. "closer to robot"</text>
+  <text x="890" y="296" class="small">3. "near front-left corner"</text>
+  <text x="890" y="328" class="small">4. "center of table"</text>
+
+  <text x="120" y="170" class="label">World XY plane</text>
+
+  <!-- World origin and axes -->
+  <circle cx="230" cy="720" r="5" fill="#395a7f"/>
+  <text x="190" y="748" class="small">world origin (0, 0)</text>
+  <line x1="230" y1="720" x2="350" y2="720" class="axis"/>
+  <text x="360" y="726" class="small">+X</text>
+  <line x1="230" y1="720" x2="230" y2="600" class="axis"/>
+  <text x="208" y="590" class="small">+Y</text>
+
+  <!-- Geometry transform: px = 230 + x*500, py = 720 - y*500 -->
+  <!-- Table -->
+  <rect x="505" y="270" width="300" height="450" rx="10" fill="#9f6a45" opacity="0.92" stroke="#5e3c24" stroke-width="4"/>
+  <circle cx="655" cy="495" r="5" fill="#3f2a1d"/>
+  <text x="530" y="255" class="label">Table top</text>
+  <text x="530" y="280" class="small">center = (0.85, 0.00)</text>
+  <text x="530" y="304" class="small">size = 0.60m x 0.90m</text>
+
+  <!-- Table dimensions -->
+  <line x1="505" y1="740" x2="805" y2="740" class="callout"/>
+  <line x1="505" y1="730" x2="505" y2="750" class="callout"/>
+  <line x1="805" y1="730" x2="805" y2="750" class="callout"/>
+  <text x="615" y="770" class="small">0.60 m (x direction)</text>
+
+  <line x1="835" y1="270" x2="835" y2="720" class="callout"/>
+  <line x1="825" y1="270" x2="845" y2="270" class="callout"/>
+  <line x1="825" y1="720" x2="845" y2="720" class="callout"/>
+  <text x="855" y="500" class="small" transform="rotate(90 855 500)">0.90 m (y direction)</text>
+
+  <!-- Cup -->
+  <circle cx="555" cy="495" r="12.5" fill="#dbe9f4" stroke="#557a96" stroke-width="4"/>
+  <line x1="555" y1="495" x2="470" y2="455" class="guide"/>
+  <text x="350" y="438" class="label">Current cup center</text>
+  <text x="350" y="463" class="small">(0.65, 0.00)</text>
+  <text x="350" y="488" class="small">relative to table center:</text>
+  <text x="350" y="513" class="small">(-0.20, 0.00)</text>
+
+  <!-- Trash bin -->
+  <rect x="245" y="935" width="220" height="220" fill="#7d848d" opacity="0.18" stroke="#30363d" stroke-width="4" transform="translate(0,-480)"/>
+  <rect x="265" y="955" width="180" height="180" fill="none" stroke="#30363d" stroke-width="4" transform="translate(0,-480)"/>
+  <text x="245" y="430" class="label">Trash bin</text>
+  <text x="245" y="455" class="small">center = (0.25, -0.65)</text>
+
+  <!-- Robot side hint -->
+  <text x="470" y="785" class="label">Robot is roughly on this side</text>
+  <line x1="620" y1="760" x2="620" y2="725" class="axis"/>
+
+  <!-- Useful edges -->
+  <text x="505" y="810" class="small">table x-range: [0.55, 1.15]</text>
+  <text x="505" y="835" class="small">table y-range: [-0.45, 0.45]</text>
+  <text x="505" y="860" class="small">safe cup center should stay inside these bounds with margin</text>
+
+  <!-- Reference grid labels -->
+  <text x="500" y="170" class="small">left edge x = 0.55</text>
+  <text x="710" y="170" class="small">right edge x = 1.15</text>
+  <text x="120" y="270" class="small">top edge y = 0.45</text>
+  <text x="120" y="720" class="small">bottom edge y = -0.45</text>
+
+  <!-- Blank target suggestions -->
+  <circle cx="655" cy="495" r="18" fill="none" stroke="#7fb069" stroke-width="3" stroke-dasharray="8 6"/>
+  <text x="680" y="500" class="small">table center option</text>
+
+  <circle cx="730" cy="380" r="18" fill="none" stroke="#d08c60" stroke-width="3" stroke-dasharray="8 6"/>
+  <text x="755" y="385" class="small">example option A</text>
+
+  <circle cx="585" cy="350" r="18" fill="none" stroke="#d08c60" stroke-width="3" stroke-dasharray="8 6"/>
+  <text x="610" y="355" class="small">example option B</text>
+</svg>
